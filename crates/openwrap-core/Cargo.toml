@@ -20,4 +20,4 @@ uuid.workspace = true
 
 [dev-dependencies]
 tempfile = "3.19"
-
+tokio = { workspace = true, features = ["test-util"] }

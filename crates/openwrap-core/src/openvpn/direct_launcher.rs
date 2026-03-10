@@ -1,5 +1,6 @@
 use std::collections::HashMap;
-use std::process::Stdio;
+use std::io::ErrorKind;
+use std::process::{Command as ProcessCommand, Stdio};
 use std::sync::Arc;
 
 use parking_lot::Mutex;
@@ -12,9 +13,15 @@ use crate::errors::AppError;
 use crate::openvpn::backend::{BackendEvent, ConnectRequest, SpawnedSession};
 use crate::VpnBackend;
 
+#[derive(Debug)]
+struct ChildHandle {
+    pid: Option<u32>,
+    child: Arc<AsyncMutex<Child>>,
+}
+
 #[derive(Debug, Default)]
 pub struct DirectOpenVpnBackend {
-    children: Arc<Mutex<HashMap<SessionId, Arc<AsyncMutex<Child>>>>>,
+    children: Arc<Mutex<HashMap<SessionId, ChildHandle>>>,
 }
 
 impl DirectOpenVpnBackend {
@@ -34,22 +41,21 @@ impl VpnBackend for DirectOpenVpnBackend {
             command.arg("--auth-user-pass").arg(auth_file);
         }
 
-        command
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .current_dir(&request.runtime_dir);
+        command.stdout(Stdio::piped()).stderr(Stdio::piped());
 
-        let mut child = command
-            .spawn()
-            .map_err(|error| AppError::OpenVpnLaunch(error.to_string()))?;
-
+        let mut child = command.spawn().map_err(map_spawn_error)?;
         let pid = child.id();
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
         let child = Arc::new(AsyncMutex::new(child));
-        self.children
-            .lock()
-            .insert(request.session_id.clone(), child.clone());
+
+        self.children.lock().insert(
+            request.session_id.clone(),
+            ChildHandle {
+                pid,
+                child: child.clone(),
+            },
+        );
 
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         if let Some(stdout) = stdout {
@@ -75,9 +81,14 @@ impl VpnBackend for DirectOpenVpnBackend {
         {
             let tx = event_tx.clone();
             let child = child.clone();
+            let children = self.children.clone();
+            let session_id = request.session_id.clone();
             tokio::spawn(async move {
                 let status = child.lock().await.wait().await.ok();
-                let _ = tx.send(BackendEvent::Exited(status.and_then(|status| status.code())));
+                children.lock().remove(&session_id);
+                let _ = tx.send(BackendEvent::Exited(
+                    status.and_then(|status| status.code()),
+                ));
             });
         }
 
@@ -89,12 +100,30 @@ impl VpnBackend for DirectOpenVpnBackend {
     }
 
     fn disconnect(&self, session_id: SessionId) -> Result<(), AppError> {
-        if let Some(child) = self.children.lock().remove(&session_id) {
+        if let Some(handle) = self.children.lock().remove(&session_id) {
+            if let Some(pid) = handle.pid {
+                let _ = ProcessCommand::new("/bin/kill")
+                    .arg("-TERM")
+                    .arg(pid.to_string())
+                    .status();
+            }
+
             tokio::spawn(async move {
-                let _ = child.lock().await.kill().await;
+                let mut child = handle.child.lock().await;
+                let _ = child.start_kill();
+                let _ = child.wait().await;
             });
         }
         Ok(())
     }
 }
 
+fn map_spawn_error(error: std::io::Error) -> AppError {
+    match error.kind() {
+        ErrorKind::NotFound => AppError::OpenVpnBinaryNotFound,
+        ErrorKind::PermissionDenied => {
+            AppError::OpenVpnLaunch("Selected OpenVPN binary is not executable.".into())
+        }
+        _ => AppError::OpenVpnLaunch(error.to_string()),
+    }
+}
