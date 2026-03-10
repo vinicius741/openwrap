@@ -90,3 +90,20 @@ pub fn set_last_selected_profile(
     tray::sync_selected_profile(&app, parsed.as_ref());
     Ok(())
 }
+
+#[tauri::command]
+pub fn delete_profile(
+    state: tauri::State<'_, AppState>,
+    profile_id: String,
+) -> Result<(), CommandError> {
+    let raw_id: openwrap_core::profiles::ProfileId =
+        profile_id.parse().map_err(|error: uuid::Error| {
+            openwrap_core::AppError::ConnectionState(error.to_string())
+        })?;
+    
+    // Attempt to delete from the repository
+    state
+        .profile_repository()
+        .delete_profile(&raw_id)
+        .map_err(Into::into)
+}

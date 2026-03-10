@@ -53,6 +53,7 @@ pub fn run() {
             commands::profiles::import_profile,
             commands::profiles::list_profiles,
             commands::profiles::get_profile,
+            commands::profiles::delete_profile,
             commands::profiles::get_last_selected_profile,
             commands::profiles::set_last_selected_profile,
             commands::connection::connect,

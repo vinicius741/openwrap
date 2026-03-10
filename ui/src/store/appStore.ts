@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 
 import { connectProfile, disconnectProfile, getConnectionState, getRecentLogs, submitCredentials } from '../features/connection/api'
-import { getLastSelectedProfile, getProfile, importProfile, listProfiles, setLastSelectedProfile } from '../features/profiles/api'
+import { deleteProfile, getLastSelectedProfile, getProfile, importProfile, listProfiles, setLastSelectedProfile } from '../features/profiles/api'
 import { detectOpenVpn, getSettings, updateSettings } from '../features/settings/api'
 import type { ImportWarningState } from '../types/domain'
 import type {
@@ -30,6 +30,7 @@ type AppStore = {
   loadInitial: () => Promise<void>
   selectProfile: (profileId: string) => Promise<void>
   refreshProfiles: () => Promise<void>
+  deleteProfile: (profileId: string) => Promise<void>
   beginImport: (filePath: string) => Promise<void>
   approveImportWarnings: () => Promise<void>
   connectSelected: () => Promise<void>
@@ -115,6 +116,26 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       const profiles = await listProfiles()
       set({ profiles, error: null })
+    } catch (error) {
+      set({ error: normalizeCommandError(error) })
+    }
+  },
+
+  deleteProfile: async (profileId) => {
+    try {
+      await deleteProfile(profileId)
+      await get().refreshProfiles()
+      
+      const { selectedProfileId, profiles } = get()
+      if (selectedProfileId === profileId) {
+        const nextProfileId = profiles.length > 0 ? profiles[0].id : null
+        if (nextProfileId) {
+          await get().selectProfile(nextProfileId)
+        } else {
+          set({ selectedProfileId: null, selectedProfile: null })
+          await setLastSelectedProfile(null)
+        }
+      }
     } catch (error) {
       set({ error: normalizeCommandError(error) })
     }

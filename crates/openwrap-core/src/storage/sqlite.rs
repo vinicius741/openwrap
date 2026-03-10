@@ -288,6 +288,16 @@ impl ProfileRepository for SqliteRepository {
             })
             .transpose()
     }
+
+    fn delete_profile(&self, profile_id: &ProfileId) -> Result<(), AppError> {
+        let connection = self.connection.lock();
+        let id_str = profile_id.to_string();
+        connection.execute("DELETE FROM profile_assets WHERE profile_id = ?1", params![id_str])?;
+        connection.execute("DELETE FROM profile_validation_findings WHERE profile_id = ?1", params![id_str])?;
+        connection.execute("DELETE FROM connection_history WHERE profile_id = ?1", params![id_str])?;
+        connection.execute("DELETE FROM profiles WHERE id = ?1", params![id_str])?;
+        Ok(())
+    }
 }
 
 fn map_profile_summary(row: &Row<'_>) -> rusqlite::Result<ProfileSummary> {

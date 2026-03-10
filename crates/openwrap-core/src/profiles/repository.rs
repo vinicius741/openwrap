@@ -21,4 +21,5 @@ pub trait ProfileRepository: Send + Sync {
     ) -> Result<Vec<ValidationFinding>, AppError>;
     fn set_last_selected_profile(&self, profile_id: Option<&ProfileId>) -> Result<(), AppError>;
     fn get_last_selected_profile(&self) -> Result<Option<ProfileId>, AppError>;
+    fn delete_profile(&self, profile_id: &ProfileId) -> Result<(), AppError>;
 }

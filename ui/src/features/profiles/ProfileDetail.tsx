@@ -5,6 +5,7 @@ import { useAppStore } from '../../store/appStore'
 
 export function ProfileDetail() {
   const profile = useAppStore((state) => state.selectedProfile)
+  const deleteProfile = useAppStore((state) => state.deleteProfile)
 
   if (!profile) {
     return <EmptyState title="No profile selected" detail="Import a profile and select it from the sidebar." />
@@ -12,12 +13,23 @@ export function ProfileDetail() {
 
   return (
     <div className="profile-detail">
-      <header className="profile-header">
+      <header className="profile-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
           <p className="eyebrow">Managed profile</p>
           <h2>{profile.profile.name}</h2>
           <p className="profile-subtitle">{profile.profile.remote_summary || 'Remote summary unavailable'}</p>
         </div>
+        <button 
+          className="action-button action-secondary" 
+          onClick={async () => {
+            if (confirm('Are you sure you want to delete this profile?')) {
+              await deleteProfile(profile.profile.id)
+            }
+          }}
+          type="button"
+        >
+          Delete
+        </button>
       </header>
       <ConnectionPanel />
       <section className="detail-grid">

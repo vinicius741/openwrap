@@ -13,6 +13,10 @@ export async function getProfile(profileId: string) {
   return invokeCommand<ProfileDetail>('get_profile', { profileId })
 }
 
+export async function deleteProfile(profileId: string) {
+  return invokeCommand<void>('delete_profile', { profileId })
+}
+
 export async function importProfile(
   filePath: string,
   allowWarnings = false,
