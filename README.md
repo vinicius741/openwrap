@@ -53,3 +53,7 @@ To run the OpenWrap application locally, you must compile the macOS helper wrapp
    ```
 
 See [docs/architecture.md](/Users/ilia/Documents/openwrap/docs/architecture.md), [docs/security-model.md](/Users/ilia/Documents/openwrap/docs/security-model.md), and [docs/helper-setup.md](/Users/ilia/Documents/openwrap/docs/helper-setup.md) for details.
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
