@@ -122,13 +122,22 @@ fn validate_request(request: &ConnectRequest) -> Result<(), String> {
     let profiles_dir = base_dir.join("profiles");
     let runtime_dir = base_dir.join("runtime");
 
-    validate_scoped_path("config", &request.config_path, &profiles_dir)?;
+    validate_config_path(&request.config_path, &profiles_dir, &request.runtime_dir)?;
     validate_scoped_path("runtime", &request.runtime_dir, &runtime_dir)?;
     if let Some(auth_file) = &request.auth_file {
         validate_scoped_path("auth file", auth_file, &request.runtime_dir)?;
     }
     validate_openvpn_binary(&request.openvpn_binary)?;
     Ok(())
+}
+
+fn validate_config_path(
+    path: &Path,
+    profiles_dir: &Path,
+    runtime_dir: &Path,
+) -> Result<(), String> {
+    validate_scoped_path("config", path, runtime_dir)
+        .or_else(|_| validate_scoped_path("config", path, profiles_dir))
 }
 
 fn validate_scoped_path(label: &str, path: &Path, root: &Path) -> Result<(), String> {

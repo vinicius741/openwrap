@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::fs::{self, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -9,6 +9,7 @@ use parking_lot::Mutex;
 use tokio::sync::broadcast;
 
 use crate::app_state::AppPaths;
+use crate::config::{parse_profile, rewrite_profile};
 use crate::connection::backoff::retry_delay_seconds;
 use crate::connection::log_parser::{
     classify_signal, diagnose_exit_error, sanitize_log, ParsedLogSignal,
@@ -26,6 +27,7 @@ use crate::{ProfileRepository, SecretStore, VpnBackend};
 
 const MAX_LOG_ENTRIES: usize = 500;
 const AUTH_FILE_NAME: &str = "auth.txt";
+const LAUNCH_CONFIG_FILE_NAME: &str = "profile.ovpn";
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
@@ -388,11 +390,19 @@ fn start_connect_attempt(
             return Err(error);
         }
     };
+    let launch_config_path = match write_launch_config(&plan.detail, &runtime_dir) {
+        Ok(path) => path,
+        Err(error) => {
+            cleanup_runtime_dir(&runtime_dir);
+            set_terminal_error(&state, &events, &profile_id, &error);
+            return Err(error);
+        }
+    };
     let request = ConnectRequest {
         session_id: session_id.clone(),
         profile_id: profile_id.clone(),
         openvpn_binary,
-        config_path: plan.detail.profile.managed_ovpn_path.clone(),
+        config_path: launch_config_path,
         auth_file: auth_file.clone(),
         runtime_dir: runtime_dir.clone(),
     };
@@ -736,6 +746,36 @@ fn write_auth_file(
     }
 }
 
+fn write_launch_config(detail: &ProfileDetail, runtime_dir: &Path) -> Result<PathBuf, AppError> {
+    let source = fs::read_to_string(&detail.profile.managed_ovpn_path)?;
+    let parsed = parse_profile(&source, &detail.profile.managed_dir)?;
+    let rewritten_assets = detail
+        .assets
+        .iter()
+        .map(|asset| {
+            (
+                asset.kind.clone(),
+                quote_openvpn_arg(&detail.profile.managed_dir.join(&asset.relative_path)),
+            )
+        })
+        .collect::<HashMap<_, _>>();
+
+    let launch_config_path = runtime_dir.join(LAUNCH_CONFIG_FILE_NAME);
+    fs::write(
+        &launch_config_path,
+        rewrite_profile(&parsed, &rewritten_assets),
+    )?;
+    Ok(launch_config_path)
+}
+
+fn quote_openvpn_arg(path: &Path) -> String {
+    let escaped = path
+        .to_string_lossy()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
+    format!("\"{escaped}\"")
+}
+
 fn cleanup_runtime_artifacts(active_session: &ActiveSession) {
     if let Some(auth_file) = &active_session.auth_file {
         let _ = fs::remove_file(auth_file);
@@ -848,8 +888,8 @@ mod tests {
     use crate::openvpn::{BackendEvent, ConnectRequest, SpawnedSession};
     use crate::profiles::repository::ProfileRepository;
     use crate::profiles::{
-        CredentialMode, Profile, ProfileDetail, ProfileId, ProfileImportResult, ProfileSummary,
-        ValidationFinding, ValidationStatus,
+        AssetId, AssetKind, AssetOrigin, CredentialMode, ManagedAsset, Profile, ProfileDetail,
+        ProfileId, ProfileImportResult, ProfileSummary, ValidationFinding, ValidationStatus,
     };
     use crate::secrets::StoredSecret;
     use crate::{SecretStore, VpnBackend};
@@ -1050,8 +1090,15 @@ mod tests {
         let profile_id = ProfileId::new();
         let managed_dir = base_dir.join("profiles").join(profile_id.to_string());
         fs::create_dir_all(&managed_dir).unwrap();
+        let asset_path = managed_dir.join("assets").join("tls-auth.key");
+        fs::create_dir_all(asset_path.parent().unwrap()).unwrap();
+        fs::write(&asset_path, "static-key").unwrap();
         let managed_ovpn_path = managed_dir.join("config.ovpn");
-        fs::write(&managed_ovpn_path, "client\nremote example.com 1194\n").unwrap();
+        fs::write(
+            &managed_ovpn_path,
+            "client\nremote example.com 1194\ntls-auth assets/tls-auth.key 1\n",
+        )
+        .unwrap();
 
         let detail = ProfileDetail {
             profile: Profile {
@@ -1069,7 +1116,14 @@ mod tests {
                 has_saved_credentials: false,
                 validation_status: ValidationStatus::Ok,
             },
-            assets: vec![],
+            assets: vec![ManagedAsset {
+                id: AssetId::new(),
+                profile_id: profile_id.clone(),
+                kind: AssetKind::TlsAuth,
+                relative_path: "assets/tls-auth.key".into(),
+                sha256: "sha".into(),
+                origin: AssetOrigin::CopiedFile,
+            }],
             findings: vec![],
         };
         let repository = Arc::new(FakeRepository {
@@ -1142,6 +1196,28 @@ mod tests {
         let connected = manager.snapshot();
         assert_eq!(connected.state, ConnectionState::Connected);
         assert_eq!(connected.retry_count, 1);
+    }
+
+    #[tokio::test]
+    async fn writes_runtime_launch_config_with_absolute_asset_paths() {
+        let (manager, backend, profile_id, _, repository) =
+            build_manager(CredentialMode::None, None);
+        let session = backend.queue_session(Some(43));
+        let asset_path = repository
+            .detail
+            .profile
+            .managed_dir
+            .join("assets")
+            .join("tls-auth.key");
+
+        manager.connect(profile_id.to_string()).await.unwrap();
+
+        let request = backend.last_request().unwrap();
+        let launch_config = fs::read_to_string(&request.config_path).unwrap();
+        assert!(request.config_path.starts_with(&request.runtime_dir));
+        assert!(launch_config.contains(&format!("tls-auth \"{}\" 1", asset_path.display())));
+
+        session.tx.send(BackendEvent::Exited(Some(0))).unwrap();
     }
 
     #[tokio::test(start_paused = true)]

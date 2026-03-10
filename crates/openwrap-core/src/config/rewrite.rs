@@ -16,7 +16,9 @@ pub fn rewrite_profile(
 
         if let Some(kind) = AssetKind::from_directive(&directive.name) {
             if let Some(path) = rewritten_assets.get(&kind) {
-                output.push(format!("{} {}", directive.name, path));
+                let mut parts = vec![directive.name.clone(), path.clone()];
+                parts.extend(directive.args.iter().skip(1).cloned());
+                output.push(parts.join(" "));
                 continue;
             }
         }
@@ -42,4 +44,26 @@ pub fn rewrite_profile(
     }
 
     output.join("\n") + "\n"
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::path::Path;
+
+    use crate::config::parse_profile;
+    use crate::profiles::AssetKind;
+
+    use super::rewrite_profile;
+
+    #[test]
+    fn preserves_extra_arguments_for_asset_directives() {
+        let parsed = parse_profile("tls-auth ta.key 1\n", Path::new("/tmp")).unwrap();
+        let rewritten = rewrite_profile(
+            &parsed,
+            &HashMap::from([(AssetKind::TlsAuth, "assets/tls-auth.key".to_string())]),
+        );
+
+        assert_eq!(rewritten, "tls-auth assets/tls-auth.key 1\nauth-nocache\n");
+    }
 }
