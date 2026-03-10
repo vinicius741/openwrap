@@ -22,14 +22,14 @@ export function SettingsView() {
         </div>
       </div>
 
-      <label className="settings-field">
-        OpenVPN binary override
+      <div className="settings-field">
+        <label>OpenVPN binary override</label>
         <input
           placeholder="/opt/homebrew/sbin/openvpn"
           value={overridePath}
           onChange={(event) => setOverridePath(event.target.value)}
         />
-      </label>
+      </div>
 
       <button
         className="action-button action-primary"

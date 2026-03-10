@@ -5,7 +5,7 @@ export function Sidebar() {
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
-        <div>
+        <div className="sidebar-title">
           <p className="eyebrow">OpenWrap</p>
           <h1>Profiles</h1>
         </div>

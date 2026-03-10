@@ -41,17 +41,17 @@ export function ConnectionPanel() {
       </div>
 
       <div className="connection-metadata">
-        <div>
-          <span>PID</span>
-          <strong>{connection?.pid ?? 'Not started'}</strong>
+        <div className="metadata-item">
+          <span className="metadata-label">PID</span>
+          <strong className="metadata-value">{connection?.pid ?? 'Not started'}</strong>
         </div>
-        <div>
-          <span>DNS mode</span>
-          <strong>{connection?.dns_observation.effective_mode ?? 'ObserveOnly'}</strong>
+        <div className="metadata-item">
+          <span className="metadata-label">DNS mode</span>
+          <strong className="metadata-value">{connection?.dns_observation.effective_mode ?? 'ObserveOnly'}</strong>
         </div>
-        <div>
-          <span>Saved credentials</span>
-          <strong>{selectedProfile?.profile.has_saved_credentials ? 'Yes' : 'No'}</strong>
+        <div className="metadata-item">
+          <span className="metadata-label">Saved credentials</span>
+          <strong className="metadata-value">{selectedProfile?.profile.has_saved_credentials ? 'Yes' : 'No'}</strong>
         </div>
       </div>
 

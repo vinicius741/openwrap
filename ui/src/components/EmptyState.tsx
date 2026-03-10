@@ -7,8 +7,10 @@ export function EmptyState({
 }) {
   return (
     <div className="empty-state">
-      <h2>{title}</h2>
-      <p>{detail}</p>
+      <div className="empty-state-content">
+        <h2>{title}</h2>
+        <p>{detail}</p>
+      </div>
     </div>
   )
 }

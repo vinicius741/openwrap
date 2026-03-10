@@ -18,11 +18,13 @@ export function ProfileList() {
           onClick={() => void selectProfile(profile.id)}
           type="button"
         >
-          <span className="profile-name">{profile.name}</span>
-          <span className="profile-remote">{profile.remote_summary || 'No remote summary'}</span>
-          <span className={`profile-validation validation-${profile.validation_status.toLowerCase()}`}>
-            {profile.validation_status.toLowerCase()}
-          </span>
+          <div className="profile-name">{profile.name}</div>
+          <div className="profile-remote">{profile.remote_summary || 'No remote summary'}</div>
+          {profile.validation_status !== 'Ok' && (
+            <div className={`profile-validation status-badge status-${profile.validation_status.toLowerCase()}`}>
+              {profile.validation_status.toLowerCase()}
+            </div>
+          )}
         </button>
       ))}
     </div>

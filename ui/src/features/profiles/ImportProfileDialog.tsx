@@ -27,29 +27,31 @@ export function ImportProfileDialog() {
       {importWarning ? (
         <div className="modal-backdrop">
           <div className="modal">
-            <h3>{importWarning.response.report.status === 'Blocked' ? 'Import blocked' : 'Approve risky directives'}</h3>
-            <p>
-              {importWarning.response.report.status === 'Blocked'
-                ? 'OpenWrap blocked this profile because it does not fit the current import policy.'
-                : 'This profile uses directives that change routing or environment behavior. Review the warnings before importing.'}
-            </p>
-            {importWarning.response.report.warnings.length ? (
-              <ul className="finding-list">
-                {importWarning.response.report.warnings.map((finding) => (
-                  <li key={`${finding.directive}-${finding.line}`}>
-                    <strong>{finding.directive}</strong> on line {finding.line}: {finding.message}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-            {importWarning.response.report.errors.length ? (
-              <ul className="finding-list">
-                {importWarning.response.report.errors.map((error) => (
-                  <li key={error}>{error}</li>
-                ))}
-              </ul>
-            ) : null}
-            <div className="modal-actions">
+            <div className="modal-content">
+              <h3>{importWarning.response.report.status === 'Blocked' ? 'Import blocked' : 'Approve risky directives'}</h3>
+              <p style={{ color: 'var(--text-secondary)', marginTop: '8px', marginBottom: '16px' }}>
+                {importWarning.response.report.status === 'Blocked'
+                  ? 'OpenWrap blocked this profile because it does not fit the current import policy.'
+                  : 'This profile uses directives that change routing or environment behavior. Review the warnings before importing.'}
+              </p>
+              {importWarning.response.report.warnings.length ? (
+                <ul className="finding-list">
+                  {importWarning.response.report.warnings.map((finding) => (
+                    <li key={`${finding.directive}-${finding.line}`}>
+                      <strong style={{ color: 'var(--warn)' }}>{finding.directive}</strong> on line {finding.line}: {finding.message}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              {importWarning.response.report.errors.length ? (
+                <ul className="finding-list">
+                  {importWarning.response.report.errors.map((error) => (
+                    <li key={error} style={{ color: 'var(--error)' }}>{error}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+            <div className="modal-actions" style={{ marginTop: '24px' }}>
               <button className="action-button action-secondary" onClick={() => clearImportWarning()} type="button">
                 Close
               </button>
