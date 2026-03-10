@@ -1,0 +1,12 @@
+node_modules/
+dist/
+target/
+.DS_Store
+Cargo.lock
+pnpm-lock.yaml
+package-lock.json
+*.db
+*.db-shm
+*.db-wal
+.vite/
+

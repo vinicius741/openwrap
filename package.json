@@ -1,0 +1,16 @@
+{
+  "name": "openwrap",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "ui"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace ui",
+    "build": "npm run build --workspace ui",
+    "tauri:dev": "cargo tauri dev --manifest-path src-tauri/Cargo.toml",
+    "cargo:test": "cargo test -p openwrap-core",
+    "check": "npm run build --workspace ui && cargo test -p openwrap-core"
+  }
+}
+
