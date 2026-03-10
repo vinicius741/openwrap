@@ -31,27 +31,29 @@ export function ConnectionPanel() {
         <StatusBadge state={connection?.state} />
       </div>
 
-      <div className="button-row">
-        <button className="action-button action-primary" disabled={isConnected} onClick={() => void connectSelected()} type="button">
-          Connect
-        </button>
-        <button className="action-button action-secondary" disabled={!isConnected} onClick={() => void disconnect()} type="button">
-          Disconnect
-        </button>
-      </div>
+      <div className="connection-controls">
+        <div className="button-group">
+          <button className="action-button action-primary" disabled={isConnected} onClick={() => void connectSelected()} type="button">
+            Connect
+          </button>
+          <button className="action-button action-secondary" disabled={!isConnected} onClick={() => void disconnect()} type="button">
+            Disconnect
+          </button>
+        </div>
 
-      <div className="connection-metadata">
-        <div className="metadata-item">
-          <span className="metadata-label">PID</span>
-          <strong className="metadata-value">{connection?.pid ?? 'Not started'}</strong>
-        </div>
-        <div className="metadata-item">
-          <span className="metadata-label">DNS mode</span>
-          <strong className="metadata-value">{connection?.dns_observation.effective_mode ?? 'ObserveOnly'}</strong>
-        </div>
-        <div className="metadata-item">
-          <span className="metadata-label">Saved credentials</span>
-          <strong className="metadata-value">{selectedProfile?.profile.has_saved_credentials ? 'Yes' : 'No'}</strong>
+        <div className="connection-metadata">
+          <div className="metadata-item">
+            <span className="metadata-label">PID</span>
+            <strong className="metadata-value">{connection?.pid ?? 'Not started'}</strong>
+          </div>
+          <div className="metadata-item">
+            <span className="metadata-label">DNS mode</span>
+            <strong className="metadata-value">{connection?.dns_observation.effective_mode ?? 'ObserveOnly'}</strong>
+          </div>
+          <div className="metadata-item">
+            <span className="metadata-label">Saved credentials</span>
+            <strong className="metadata-value">{selectedProfile?.profile.has_saved_credentials ? 'Yes' : 'No'}</strong>
+          </div>
         </div>
       </div>
 
