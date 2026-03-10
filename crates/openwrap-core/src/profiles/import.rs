@@ -54,6 +54,7 @@ impl ProfileImporter {
 
         let mut report = ImportReport::default();
         let mut findings = Vec::new();
+        let canonical_source_dir = canonicalize_existing_dir(&source_dir)?;
 
         for directive in &parsed.directives {
             if directive.name == "auth-user-pass" && !directive.args.is_empty() {
@@ -99,6 +100,11 @@ impl ProfileImporter {
             .collect::<Vec<_>>();
         report.blocked_directives = blocked.clone();
         report.warnings = warnings.clone();
+        report.errors.extend(
+            blocked
+                .iter()
+                .map(|finding| format!("Line {}: {}", finding.line, finding.message)),
+        );
 
         if !blocked.is_empty() {
             report.status = ImportStatus::Blocked;
@@ -125,11 +131,34 @@ impl ProfileImporter {
 
         let mut rewritten_assets = HashMap::new();
         let mut assets = Vec::new();
+        let mut seen_assets = HashMap::<AssetKind, (String, usize)>::new();
 
         for asset in &parsed.referenced_assets {
-            let resolved = resolve_asset_path(&source_dir, &asset.source_path)?;
+            let descriptor = asset.source_path.display().to_string();
+            if let Some((existing, line)) = seen_assets.get(&asset.kind) {
+                if existing != &descriptor {
+                    report.errors.push(format!(
+                        "Line {} conflicts with line {}: multiple '{}' assets were declared.",
+                        asset.line, line, asset.directive
+                    ));
+                }
+                continue;
+            } else {
+                seen_assets.insert(asset.kind.clone(), (descriptor.clone(), asset.line));
+            }
+
+            let resolved = match resolve_asset_path(&canonical_source_dir, &asset.source_path) {
+                Ok(path) => path,
+                Err(error) => {
+                    report.errors.push(import_error_message(asset.line, &error));
+                    continue;
+                }
+            };
             if !resolved.exists() {
                 report.missing_files.push(resolved.to_string_lossy().to_string());
+                report
+                    .errors
+                    .push(format!("Line {} references a missing file: {}", asset.line, resolved.display()));
                 continue;
             }
             let relative_path = format!("assets/{}", asset.kind.file_name());
@@ -148,6 +177,19 @@ impl ProfileImporter {
         }
 
         for inline in &parsed.inline_assets {
+            let descriptor = "<inline>".to_string();
+            if let Some((existing, line)) = seen_assets.get(&inline.kind) {
+                if existing != &descriptor {
+                    report.errors.push(format!(
+                        "Line {} conflicts with line {}: '{}' is defined as both inline content and a file asset.",
+                        inline.line, line, inline.directive
+                    ));
+                }
+                continue;
+            } else {
+                seen_assets.insert(inline.kind.clone(), (descriptor, inline.line));
+            }
+
             let relative_path = format!("assets/{}", inline.kind.file_name());
             let target = managed_dir.join(&relative_path);
             fs::write(&target, &inline.content)?;
@@ -163,7 +205,8 @@ impl ProfileImporter {
             ));
         }
 
-        if !report.missing_files.is_empty() {
+        if !report.missing_files.is_empty() || !report.errors.is_empty() {
+            let _ = fs::remove_dir_all(&managed_dir);
             report.status = ImportStatus::Blocked;
             return Ok(ImportProfileResponse { profile: None, report });
         }
@@ -216,28 +259,65 @@ impl ProfileImporter {
     }
 }
 
+fn canonicalize_existing_dir(path: &Path) -> Result<PathBuf, AppError> {
+    fs::canonicalize(path).map_err(AppError::from)
+}
+
 fn resolve_asset_path(source_dir: &Path, candidate: &Path) -> Result<PathBuf, AppError> {
-    if candidate.is_absolute() {
-        if candidate.starts_with(source_dir) {
-            Ok(candidate.to_path_buf())
-        } else {
-            Err(AppError::UnsupportedAbsolutePath(candidate.to_path_buf()))
-        }
+    if candidate
+        .components()
+        .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
+        return Err(AppError::Validation {
+            title: "Path traversal detected".into(),
+            message: "Referenced asset escapes the import directory.".into(),
+            directive: None,
+            line: None,
+        });
+    }
+
+    let candidate_path = if candidate.is_absolute() {
+        candidate.to_path_buf()
     } else {
-        let path = source_dir.join(candidate);
-        if path
-            .components()
-            .any(|component| matches!(component, std::path::Component::ParentDir))
-        {
+        source_dir.join(candidate)
+    };
+
+    let parent = candidate_path.parent().ok_or_else(|| AppError::Validation {
+        title: "Invalid asset path".into(),
+        message: "Referenced asset path has no parent directory.".into(),
+        directive: None,
+        line: None,
+    })?;
+    let canonical_parent = fs::canonicalize(parent)?;
+
+    if !canonical_parent.starts_with(source_dir) {
+        return if candidate.is_absolute() {
+            Err(AppError::UnsupportedAbsolutePath(candidate.to_path_buf()))
+        } else {
             Err(AppError::Validation {
                 title: "Path traversal detected".into(),
                 message: "Referenced asset escapes the import directory.".into(),
                 directive: None,
                 line: None,
             })
-        } else {
-            Ok(path)
-        }
+        };
+    }
+
+    if candidate_path.exists() {
+        fs::canonicalize(&candidate_path).map_err(AppError::from)
+    } else {
+        Ok(candidate_path)
+    }
+}
+
+fn import_error_message(line: usize, error: &AppError) -> String {
+    match error {
+        AppError::UnsupportedAbsolutePath(path) => format!(
+            "Line {line} references an absolute path outside the imported profile directory: {}",
+            path.display()
+        ),
+        AppError::Validation { title, message, .. } => format!("Line {line} ({title}): {message}"),
+        other => format!("Line {line}: {other}"),
     }
 }
 
@@ -332,5 +412,106 @@ mod tests {
         assert!(response.profile.is_none());
         assert_eq!(response.report.status, crate::profiles::ImportStatus::Blocked);
         assert_eq!(response.report.missing_files.len(), 1);
+        assert_eq!(response.report.errors.len(), 1);
+    }
+
+    #[test]
+    fn blocks_asset_path_traversal() {
+        let temp = TempDir::new().unwrap();
+        let source_dir = temp.path().join("source");
+        fs::create_dir_all(source_dir.join("nested")).unwrap();
+        fs::write(temp.path().join("escape.key"), "secret").unwrap();
+        fs::write(
+            source_dir.join("nested").join("sample.ovpn"),
+            "client\nremote vpn.example.com 1194\nkey ../escape.key\n",
+        )
+        .unwrap();
+
+        let paths = AppPaths::new(temp.path().join("app"));
+        paths.ensure().unwrap();
+        let repository = Arc::new(SqliteRepository::new(&paths.database_path).unwrap());
+        let importer = ProfileImporter::new(paths, repository);
+
+        let response = importer
+            .import_profile(ImportProfileRequest {
+                source_path: source_dir.join("nested").join("sample.ovpn"),
+                display_name: None,
+                allow_warnings: true,
+            })
+            .unwrap();
+
+        assert!(response.profile.is_none());
+        assert_eq!(response.report.status, crate::profiles::ImportStatus::Blocked);
+        assert!(response
+            .report
+            .errors
+            .iter()
+            .any(|error| error.contains("Path traversal detected")));
+    }
+
+    #[test]
+    fn blocks_duplicate_inline_and_file_assets() {
+        let temp = TempDir::new().unwrap();
+        let source_dir = temp.path().join("source");
+        fs::create_dir_all(&source_dir).unwrap();
+        fs::write(source_dir.join("ca.crt"), "certificate").unwrap();
+        fs::write(
+            source_dir.join("sample.ovpn"),
+            "client\nremote vpn.example.com 1194\nca ca.crt\n<ca>\ninline\n</ca>\n",
+        )
+        .unwrap();
+
+        let paths = AppPaths::new(temp.path().join("app"));
+        paths.ensure().unwrap();
+        let repository = Arc::new(SqliteRepository::new(&paths.database_path).unwrap());
+        let importer = ProfileImporter::new(paths, repository);
+
+        let response = importer
+            .import_profile(ImportProfileRequest {
+                source_path: source_dir.join("sample.ovpn"),
+                display_name: None,
+                allow_warnings: true,
+            })
+            .unwrap();
+
+        assert!(response.profile.is_none());
+        assert!(response
+            .report
+            .errors
+            .iter()
+            .any(|error| error.contains("defined as both inline content and a file asset")));
+    }
+
+    #[test]
+    fn blocks_non_dns_dhcp_options() {
+        let temp = TempDir::new().unwrap();
+        let source_dir = temp.path().join("source");
+        fs::create_dir_all(&source_dir).unwrap();
+        fs::write(
+            source_dir.join("sample.ovpn"),
+            "client\nremote vpn.example.com 1194\ndhcp-option DOMAIN corp.example\n",
+        )
+        .unwrap();
+
+        let paths = AppPaths::new(temp.path().join("app"));
+        paths.ensure().unwrap();
+        let repository = Arc::new(SqliteRepository::new(&paths.database_path).unwrap());
+        let importer = ProfileImporter::new(paths, repository);
+
+        let response = importer
+            .import_profile(ImportProfileRequest {
+                source_path: source_dir.join("sample.ovpn"),
+                display_name: None,
+                allow_warnings: true,
+            })
+            .unwrap();
+
+        assert!(response.profile.is_none());
+        assert_eq!(response.report.status, crate::profiles::ImportStatus::Blocked);
+        assert!(response
+            .report
+            .errors
+            .iter()
+            .any(|error| error.contains("dhcp-option")));
     }
 }

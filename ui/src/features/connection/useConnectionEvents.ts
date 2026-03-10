@@ -6,6 +6,7 @@ import type { ConnectionSnapshot, CredentialPrompt, DnsObservation, LogEntry } f
 
 export function useConnectionEvents() {
   const setConnection = useAppStore((state) => state.setConnection)
+  const setDnsObservation = useAppStore((state) => state.setDnsObservation)
   const appendLog = useAppStore((state) => state.appendLog)
   const setCredentialPrompt = useAppStore((state) => state.setCredentialPrompt)
 
@@ -20,7 +21,9 @@ export function useConnectionEvents() {
       listen<CredentialPrompt>('connection://credentials-requested', (event) => {
         setCredentialPrompt(event.payload)
       }),
-      listen<DnsObservation>('connection://dns-observed', () => {}),
+      listen<DnsObservation>('connection://dns-observed', (event) => {
+        setDnsObservation(event.payload)
+      }),
     ])
 
     return () => {
@@ -28,6 +31,5 @@ export function useConnectionEvents() {
         listeners.forEach((listener) => listener())
       })
     }
-  }, [appendLog, setConnection, setCredentialPrompt])
+  }, [appendLog, setConnection, setCredentialPrompt, setDnsObservation])
 }
-

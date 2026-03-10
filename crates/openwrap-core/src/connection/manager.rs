@@ -297,6 +297,9 @@ impl ConnectionManager {
         let _ = self
             .events
             .send(CoreEvent::StateChanged(state.snapshot.clone()));
+        let _ = self
+            .events
+            .send(CoreEvent::DnsObserved(state.snapshot.dns_observation.clone()));
     }
 }
 
@@ -338,6 +341,7 @@ fn start_connect_attempt(
         }
         state.snapshot.dns_observation = dns_observer.from_profile(&plan.detail.profile.dns_intent);
         let _ = events.send(CoreEvent::StateChanged(state.snapshot.clone()));
+        let _ = events.send(CoreEvent::DnsObserved(state.snapshot.dns_observation.clone()));
     }
 
     let settings = match repository.get_settings() {
@@ -444,6 +448,7 @@ fn start_connect_attempt(
                     &events,
                     &profile_id,
                     &backend,
+                    &dns_observer,
                     &active_session,
                     &mut observation,
                     "stdout",
@@ -454,6 +459,7 @@ fn start_connect_attempt(
                     &events,
                     &profile_id,
                     &backend,
+                    &dns_observer,
                     &active_session,
                     &mut observation,
                     "stderr",
@@ -493,6 +499,7 @@ fn handle_log(
     events: &broadcast::Sender<CoreEvent>,
     profile_id: &ProfileId,
     backend: &Arc<dyn VpnBackend>,
+    dns_observer: &Arc<dyn DnsObserver>,
     active_session: &ActiveSession,
     observation: &mut crate::dns::DnsObservation,
     stream: &str,
@@ -539,9 +546,10 @@ fn handle_log(
                 }
             }
             ParsedLogSignal::DnsHint => {
-                observation.runtime_pushed.push(line.to_string());
-                state.snapshot.dns_observation = observation.clone();
-                let _ = events.send(CoreEvent::DnsObserved(observation.clone()));
+                if dns_observer.update_from_log(observation, line) {
+                    state.snapshot.dns_observation = observation.clone();
+                    let _ = events.send(CoreEvent::DnsObserved(observation.clone()));
+                }
             }
             ParsedLogSignal::None => {}
         }

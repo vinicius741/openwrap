@@ -64,6 +64,7 @@ export interface ImportReport {
   warnings: ValidationFinding[]
   blocked_directives: ValidationFinding[]
   missing_files: string[]
+  errors: string[]
 }
 
 export interface ImportProfileResponse {
@@ -119,4 +120,3 @@ export interface OpenVpnDetection {
   discovered_paths: string[]
   selected_path: string | null
 }
-

@@ -73,6 +73,7 @@ input {
   grid-template-columns: minmax(0, 1fr) 320px;
   gap: 20px;
   padding: 24px;
+  align-content: start;
 }
 
 .panel,
@@ -160,6 +161,11 @@ h4 {
   border-radius: 14px;
   padding: 10px 14px;
   cursor: pointer;
+}
+
+.action-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .action-primary {
@@ -328,6 +334,14 @@ input {
 .sidebar-empty,
 .log-empty {
   background: rgba(25, 34, 31, 0.05);
+}
+
+.app-error-banner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  grid-column: 1 / -1;
 }
 
 .modal-backdrop {

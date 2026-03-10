@@ -15,7 +15,11 @@ export function ConnectionPanel() {
   const [password, setPassword] = useState('')
   const [remember, setRemember] = useState(true)
 
-  const isConnected = connection?.state === 'connected' || connection?.state === 'connecting'
+  const isConnected =
+    connection?.state === 'connected' ||
+    connection?.state === 'connecting' ||
+    connection?.state === 'reconnecting' ||
+    connection?.state === 'awaiting_credentials'
 
   return (
     <section className="connection-panel">
@@ -50,6 +54,13 @@ export function ConnectionPanel() {
           <strong>{selectedProfile?.profile.has_saved_credentials ? 'Yes' : 'No'}</strong>
         </div>
       </div>
+
+      {connection?.dns_observation.warnings.length ? (
+        <div className="dns-observation">
+          <strong>DNS warnings</strong>
+          <p>{connection.dns_observation.warnings.join(' ')}</p>
+        </div>
+      ) : null}
 
       {connection?.last_error ? (
         <div className="error-banner">
@@ -92,4 +103,3 @@ export function ConnectionPanel() {
     </section>
   )
 }
-

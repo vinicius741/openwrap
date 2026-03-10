@@ -4,6 +4,7 @@ use tauri::Emitter;
 use crate::app_state::AppState;
 use crate::error::CommandError;
 use crate::events::PROFILES_IMPORT_COMPLETED;
+use crate::tray;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -50,7 +51,19 @@ pub fn get_profile(
 }
 
 #[tauri::command]
+pub fn get_last_selected_profile(
+    state: tauri::State<'_, AppState>,
+) -> Result<Option<String>, CommandError> {
+    state
+        .profile_repository()
+        .get_last_selected_profile()
+        .map(|profile_id| profile_id.map(|profile_id| profile_id.to_string()))
+        .map_err(Into::into)
+}
+
+#[tauri::command]
 pub fn set_last_selected_profile(
+    app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     profile_id: Option<String>,
 ) -> Result<(), CommandError> {
@@ -61,6 +74,7 @@ pub fn set_last_selected_profile(
         .map_err(|error: uuid::Error| openwrap_core::AppError::ConnectionState(error.to_string()))?;
     state
         .profile_repository()
-        .set_last_selected_profile(parsed.as_ref())
-        .map_err(Into::into)
+        .set_last_selected_profile(parsed.as_ref())?;
+    tray::sync_selected_profile(&app, parsed.as_ref());
+    Ok(())
 }

@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::config::inline::{build_inline_asset, supported_inline_tag};
 use crate::errors::AppError;
@@ -6,7 +6,7 @@ use crate::profiles::{
     AssetKind, AssetReference, ParsedDirective, ParsedProfile,
 };
 
-pub fn parse_profile(source: &str, base_dir: &Path) -> Result<ParsedProfile, AppError> {
+pub fn parse_profile(source: &str, _base_dir: &Path) -> Result<ParsedProfile, AppError> {
     let mut directives = Vec::new();
     let mut referenced_assets = Vec::new();
     let mut inline_assets = Vec::new();
@@ -70,7 +70,7 @@ pub fn parse_profile(source: &str, base_dir: &Path) -> Result<ParsedProfile, App
                 requires_auth_user_pass = true;
             }
             "ca" | "cert" | "key" | "pkcs12" | "tls-auth" | "tls-crypt" if !args.is_empty() => {
-                let source_path = base_dir.join(&args[0]);
+                let source_path = PathBuf::from(&args[0]);
                 let kind = AssetKind::from_directive(&name).unwrap_or(AssetKind::InlineBlob);
                 referenced_assets.push(AssetReference {
                     directive: name.clone(),
@@ -147,4 +147,3 @@ dhcp-option DNS 1.1.1.1
         assert_eq!(parsed.dns_directives, vec!["DNS 1.1.1.1"]);
     }
 }
-

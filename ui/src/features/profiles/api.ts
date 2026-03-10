@@ -1,5 +1,4 @@
-import { invoke } from '@tauri-apps/api/core'
-
+import { invokeCommand } from '../../lib/tauri'
 import type {
   ImportProfileResponse,
   ProfileDetail,
@@ -7,11 +6,11 @@ import type {
 } from '../../types/ipc'
 
 export async function listProfiles() {
-  return invoke<ProfileSummary[]>('list_profiles')
+  return invokeCommand<ProfileSummary[]>('list_profiles')
 }
 
 export async function getProfile(profileId: string) {
-  return invoke<ProfileDetail>('get_profile', { profileId })
+  return invokeCommand<ProfileDetail>('get_profile', { profileId })
 }
 
 export async function importProfile(
@@ -19,7 +18,7 @@ export async function importProfile(
   allowWarnings = false,
   displayName?: string,
 ) {
-  return invoke<ImportProfileResponse>('import_profile', {
+  return invokeCommand<ImportProfileResponse>('import_profile', {
     request: {
       filePath,
       displayName,
@@ -28,7 +27,10 @@ export async function importProfile(
   })
 }
 
-export async function setLastSelectedProfile(profileId: string | null) {
-  return invoke<void>('set_last_selected_profile', { profileId })
+export async function getLastSelectedProfile() {
+  return invokeCommand<string | null>('get_last_selected_profile')
 }
 
+export async function setLastSelectedProfile(profileId: string | null) {
+  return invokeCommand<void>('set_last_selected_profile', { profileId })
+}

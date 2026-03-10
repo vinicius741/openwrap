@@ -150,6 +150,7 @@ pub struct ImportReport {
     pub warnings: Vec<ValidationFinding>,
     pub blocked_directives: Vec<ValidationFinding>,
     pub missing_files: Vec<String>,
+    pub errors: Vec<String>,
 }
 
 impl Default for ImportReport {
@@ -161,6 +162,7 @@ impl Default for ImportReport {
             warnings: Vec::new(),
             blocked_directives: Vec::new(),
             missing_files: Vec::new(),
+            errors: Vec::new(),
         }
     }
 }

@@ -27,7 +27,7 @@ pub fn sanitize_log(stream: &str, line: &str) -> LogEntry {
         (LogLevel::Info, "connected")
     } else if line.contains("SIGUSR1") || line.contains("Restart pause") {
         (LogLevel::Warn, "retryable")
-    } else if line.contains("dhcp-option DNS") || line.contains("PUSH_REPLY") {
+    } else if line.contains("dhcp-option") || line.contains("PUSH_REPLY") {
         (LogLevel::Info, "dns")
     } else {
         (LogLevel::Debug, "default")
@@ -50,7 +50,7 @@ pub fn classify_signal(line: &str) -> ParsedLogSignal {
         ParsedLogSignal::AuthFailed
     } else if line.contains("SIGUSR1") || line.contains("Restart pause") {
         ParsedLogSignal::RetryableFailure
-    } else if line.contains("dhcp-option DNS") || line.contains("PUSH_REPLY") {
+    } else if line.contains("dhcp-option") || line.contains("PUSH_REPLY") {
         ParsedLogSignal::DnsHint
     } else {
         ParsedLogSignal::None
@@ -73,4 +73,3 @@ mod tests {
         assert_eq!(classify_signal("PUSH_REPLY,dhcp-option DNS 1.1.1.1"), ParsedLogSignal::DnsHint);
     }
 }
-

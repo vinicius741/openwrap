@@ -38,9 +38,12 @@ pub fn classify_directive(name: &str, args: &[String]) -> DirectiveClassificatio
         | "verb"
         | "mute"
         | "auth-nocache" => DirectiveClassification::Allowed,
-        "redirect-gateway" | "route-nopull" | "dhcp-option" | "setenv" => {
-            DirectiveClassification::Warned
-        }
+        "redirect-gateway" | "route-nopull" => DirectiveClassification::Warned,
+        "dhcp-option" => match args.first().map(|value| value.to_ascii_uppercase()) {
+            Some(option) if option == "DNS" => DirectiveClassification::Warned,
+            _ => DirectiveClassification::Blocked,
+        },
+        "setenv" => DirectiveClassification::Blocked,
         "script-security" => match args.first().and_then(|value| value.parse::<u8>().ok()) {
             Some(level) if level <= 1 => DirectiveClassification::Allowed,
             _ => DirectiveClassification::Blocked,
@@ -103,9 +106,17 @@ mod tests {
             classify_directive("redirect-gateway", &[]),
             DirectiveClassification::Warned
         );
+        assert_eq!(
+            classify_directive("dhcp-option", &[String::from("DNS"), String::from("1.1.1.1")]),
+            DirectiveClassification::Warned
+        );
         assert_eq!(classify_directive("plugin", &[]), DirectiveClassification::Blocked);
         assert_eq!(
             classify_directive("script-security", &[String::from("2")]),
+            DirectiveClassification::Blocked
+        );
+        assert_eq!(
+            classify_directive("dhcp-option", &[String::from("DOMAIN"), String::from("corp.example")]),
             DirectiveClassification::Blocked
         );
     }
@@ -118,4 +129,3 @@ mod tests {
         );
     }
 }
-

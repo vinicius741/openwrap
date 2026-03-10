@@ -27,25 +27,37 @@ export function ImportProfileDialog() {
       {importWarning ? (
         <div className="modal-backdrop">
           <div className="modal">
-            <h3>Approve risky directives</h3>
+            <h3>{importWarning.response.report.status === 'Blocked' ? 'Import blocked' : 'Approve risky directives'}</h3>
             <p>
-              This profile uses directives that change routing or environment behavior. Review the warnings before
-              importing.
+              {importWarning.response.report.status === 'Blocked'
+                ? 'OpenWrap blocked this profile because it does not fit the current import policy.'
+                : 'This profile uses directives that change routing or environment behavior. Review the warnings before importing.'}
             </p>
-            <ul className="finding-list">
-              {importWarning.response.report.warnings.map((finding) => (
-                <li key={`${finding.directive}-${finding.line}`}>
-                  <strong>{finding.directive}</strong> on line {finding.line}: {finding.message}
-                </li>
-              ))}
-            </ul>
+            {importWarning.response.report.warnings.length ? (
+              <ul className="finding-list">
+                {importWarning.response.report.warnings.map((finding) => (
+                  <li key={`${finding.directive}-${finding.line}`}>
+                    <strong>{finding.directive}</strong> on line {finding.line}: {finding.message}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {importWarning.response.report.errors.length ? (
+              <ul className="finding-list">
+                {importWarning.response.report.errors.map((error) => (
+                  <li key={error}>{error}</li>
+                ))}
+              </ul>
+            ) : null}
             <div className="modal-actions">
               <button className="action-button action-secondary" onClick={() => clearImportWarning()} type="button">
-                Cancel
+                Close
               </button>
-              <button className="action-button action-primary" onClick={() => void approveImportWarnings()} type="button">
-                Import anyway
-              </button>
+              {importWarning.response.report.status === 'NeedsApproval' ? (
+                <button className="action-button action-primary" onClick={() => void approveImportWarnings()} type="button">
+                  Import anyway
+                </button>
+              ) : null}
             </div>
           </div>
         </div>

@@ -26,6 +26,7 @@ pub fn run() {
                 while let Ok(event) = event_rx.recv().await {
                     match event {
                         CoreEvent::StateChanged(payload) => {
+                            crate::tray::sync_connection_state(&events_app, &payload);
                             let _ = events_app.emit(crate::events::CONNECTION_STATE_CHANGED, payload);
                         }
                         CoreEvent::LogLine(payload) => {
@@ -49,6 +50,7 @@ pub fn run() {
             commands::profiles::import_profile,
             commands::profiles::list_profiles,
             commands::profiles::get_profile,
+            commands::profiles::get_last_selected_profile,
             commands::profiles::set_last_selected_profile,
             commands::connection::connect,
             commands::connection::submit_credentials,
