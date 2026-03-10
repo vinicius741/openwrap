@@ -5,8 +5,7 @@ OpenWrap is a lightweight macOS desktop client for OpenVPN profiles. It is built
 Current status:
 - Greenfield MVP scaffold
 - Profile import, validation, storage, and listing implemented
-- Connection state machine, log streaming, and direct OpenVPN launcher implemented for development
-- Keychain integration and tray wiring stubbed for the macOS-first path
+- Connection state machine, log streaming, and helper-backed OpenVPN launch path implemented
+- Keychain integration and tray wiring still need further hardening
 
-See [docs/architecture.md](/Users/ilia/Documents/openwrap/docs/architecture.md) and [docs/security-model.md](/Users/ilia/Documents/openwrap/docs/security-model.md) for details.
-
+See [docs/architecture.md](/Users/ilia/Documents/openwrap/docs/architecture.md), [docs/security-model.md](/Users/ilia/Documents/openwrap/docs/security-model.md), and [docs/helper-setup.md](/Users/ilia/Documents/openwrap/docs/helper-setup.md) for details.

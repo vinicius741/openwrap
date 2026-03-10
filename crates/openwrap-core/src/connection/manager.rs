@@ -432,6 +432,13 @@ fn start_connect_attempt(
         let mut observation = observation;
         while let Some(event) = event_rx.recv().await {
             match event {
+                BackendEvent::Started(pid) => {
+                    let mut state = task_state.lock();
+                    if session_is_current(&state, &active_session) {
+                        state.snapshot.pid = pid;
+                        let _ = events.send(CoreEvent::StateChanged(state.snapshot.clone()));
+                    }
+                }
                 BackendEvent::Stdout(line) => handle_log(
                     &task_state,
                     &events,

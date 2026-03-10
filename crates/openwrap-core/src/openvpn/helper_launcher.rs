@@ -1,16 +1,18 @@
 use std::collections::HashMap;
 use std::io::ErrorKind;
+use std::path::PathBuf;
 use std::process::{Command as ProcessCommand, Stdio};
 use std::sync::Arc;
 
 use parking_lot::Mutex;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::{mpsc, Mutex as AsyncMutex};
 
 use crate::connection::SessionId;
 use crate::errors::AppError;
 use crate::openvpn::backend::{BackendEvent, ConnectRequest, SpawnedSession};
+use crate::openvpn::helper_protocol::HelperEvent;
 use crate::VpnBackend;
 
 #[derive(Debug)]
@@ -19,32 +21,34 @@ struct ChildHandle {
     child: Arc<AsyncMutex<Child>>,
 }
 
-#[derive(Debug, Default)]
-pub struct DirectOpenVpnBackend {
+#[derive(Debug)]
+pub struct HelperOpenVpnBackend {
+    helper_binary: PathBuf,
     children: Arc<Mutex<HashMap<SessionId, ChildHandle>>>,
 }
 
-impl DirectOpenVpnBackend {
-    pub fn new() -> Self {
-        Self::default()
+impl HelperOpenVpnBackend {
+    pub fn new(helper_binary: PathBuf) -> Self {
+        Self {
+            helper_binary,
+            children: Arc::new(Mutex::new(HashMap::new())),
+        }
     }
 }
 
-impl VpnBackend for DirectOpenVpnBackend {
+impl VpnBackend for HelperOpenVpnBackend {
     fn connect(&self, request: ConnectRequest) -> Result<SpawnedSession, AppError> {
-        let mut command = Command::new(&request.openvpn_binary);
-        command.arg("--config").arg(&request.config_path);
-        command.arg("--auth-nocache");
-        command.arg("--verb").arg("3");
+        validate_helper_binary(&self.helper_binary)?;
 
-        if let Some(auth_file) = &request.auth_file {
-            command.arg("--auth-user-pass").arg(auth_file);
-        }
-
-        command.stdout(Stdio::piped()).stderr(Stdio::piped());
+        let mut command = Command::new(&self.helper_binary);
+        command.arg("connect");
+        command.stdin(Stdio::piped());
+        command.stdout(Stdio::piped());
+        command.stderr(Stdio::piped());
 
         let mut child = command.spawn().map_err(map_spawn_error)?;
         let pid = child.id();
+        let stdin = child.stdin.take();
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
         let child = Arc::new(AsyncMutex::new(child));
@@ -58,13 +62,36 @@ impl VpnBackend for DirectOpenVpnBackend {
         );
 
         let (event_tx, event_rx) = mpsc::unbounded_channel();
-        let _ = event_tx.send(BackendEvent::Started(pid));
+
+        if let Some(mut stdin) = stdin {
+            let payload = serde_json::to_vec(&request)
+                .map_err(|error| AppError::Serialization(error.to_string()))?;
+            tokio::spawn(async move {
+                let _ = stdin.write_all(&payload).await;
+            });
+        }
+
         if let Some(stdout) = stdout {
             let tx = event_tx.clone();
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stdout).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
-                    let _ = tx.send(BackendEvent::Stdout(line));
+                    match serde_json::from_str::<HelperEvent>(&line) {
+                        Ok(HelperEvent::Started { pid }) => {
+                            let _ = tx.send(BackendEvent::Started(pid));
+                        }
+                        Ok(HelperEvent::Stdout { line }) => {
+                            let _ = tx.send(BackendEvent::Stdout(line));
+                        }
+                        Ok(HelperEvent::Stderr { line }) => {
+                            let _ = tx.send(BackendEvent::Stderr(line));
+                        }
+                        Err(_) => {
+                            let _ = tx.send(BackendEvent::Stderr(format!(
+                                "helper protocol error: {line}"
+                            )));
+                        }
+                    }
                 }
             });
         }
@@ -74,7 +101,7 @@ impl VpnBackend for DirectOpenVpnBackend {
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stderr).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
-                    let _ = tx.send(BackendEvent::Stderr(line));
+                    let _ = tx.send(BackendEvent::Stderr(format!("helper: {line}")));
                 }
             });
         }
@@ -111,7 +138,6 @@ impl VpnBackend for DirectOpenVpnBackend {
 
             tokio::spawn(async move {
                 let mut child = handle.child.lock().await;
-                let _ = child.start_kill();
                 let _ = child.wait().await;
             });
         }
@@ -121,10 +147,38 @@ impl VpnBackend for DirectOpenVpnBackend {
 
 fn map_spawn_error(error: std::io::Error) -> AppError {
     match error.kind() {
-        ErrorKind::NotFound => AppError::OpenVpnBinaryNotFound,
-        ErrorKind::PermissionDenied => {
-            AppError::OpenVpnLaunch("Selected OpenVPN binary is not executable.".into())
-        }
+        ErrorKind::NotFound => AppError::OpenVpnLaunch(
+            "Privileged helper binary was not found. See docs/helper-setup.md.".into(),
+        ),
+        ErrorKind::PermissionDenied => AppError::OpenVpnLaunch(
+            "Privileged helper is not executable. See docs/helper-setup.md.".into(),
+        ),
         _ => AppError::OpenVpnLaunch(error.to_string()),
     }
+}
+
+#[cfg(unix)]
+fn validate_helper_binary(path: &PathBuf) -> Result<(), AppError> {
+    use std::fs;
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    let metadata = fs::metadata(path).map_err(map_spawn_error)?;
+    let mode = metadata.permissions().mode();
+    let owner_is_root = metadata.uid() == 0;
+    let setuid = (mode & 0o4000) != 0;
+
+    if owner_is_root && setuid {
+        Ok(())
+    } else {
+        Err(AppError::OpenVpnLaunch(
+            "Privileged helper is not installed with root ownership and setuid. See docs/helper-setup.md.".into(),
+        ))
+    }
+}
+
+#[cfg(not(unix))]
+fn validate_helper_binary(_path: &PathBuf) -> Result<(), AppError> {
+    Err(AppError::OpenVpnLaunch(
+        "Privileged helper is only supported on macOS.".into(),
+    ))
 }

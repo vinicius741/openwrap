@@ -18,6 +18,7 @@ pub struct ConnectRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum BackendEvent {
+    Started(Option<u32>),
     Stdout(String),
     Stderr(String),
     Exited(Option<i32>),
@@ -29,4 +30,3 @@ pub struct SpawnedSession {
     pub pid: Option<u32>,
     pub event_rx: mpsc::UnboundedReceiver<BackendEvent>,
 }
-
