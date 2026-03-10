@@ -69,7 +69,7 @@ export function ConnectionPanel() {
 
       {connection?.dns_observation.warnings.length ? (
         <div className="dns-observation">
-          <strong>DNS warnings</strong>
+          <strong>DNS status</strong>
           <p>{connection.dns_observation.warnings.join(' ')}</p>
         </div>
       ) : null}
@@ -78,6 +78,11 @@ export function ConnectionPanel() {
         <div className="error-banner">
           <strong>{connection.last_error.title}</strong>
           <p>{connection.last_error.message}</p>
+          {connection.last_error.details_safe ? (
+            <p className="error-detail">
+              <span>OpenVPN reported:</span> {connection.last_error.details_safe}
+            </p>
+          ) : null}
           {connection.last_error.suggested_fix ? <p>{connection.last_error.suggested_fix}</p> : null}
         </div>
       ) : null}

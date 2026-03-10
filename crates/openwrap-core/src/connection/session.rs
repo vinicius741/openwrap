@@ -86,7 +86,7 @@ pub struct CredentialSubmission {
     pub remember_in_keychain: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum LogLevel {
     Debug,

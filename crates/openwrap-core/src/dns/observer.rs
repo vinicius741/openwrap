@@ -20,7 +20,7 @@ impl DnsObserver for PassiveDnsObserver {
 
         if !observation.config_requested.is_empty() {
             observation.warnings.push(
-                "DNS is observe-only in OpenWrap; runtime DNS values are inferred from OpenVPN logs."
+                "OpenWrap does not apply DNS settings yet; any DNS shown here is inferred from OpenVPN runtime logs."
                     .into(),
             );
         }

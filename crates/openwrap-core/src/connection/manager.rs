@@ -10,7 +10,9 @@ use tokio::sync::broadcast;
 
 use crate::app_state::AppPaths;
 use crate::connection::backoff::retry_delay_seconds;
-use crate::connection::log_parser::{classify_signal, sanitize_log, ParsedLogSignal};
+use crate::connection::log_parser::{
+    classify_signal, diagnose_exit_error, sanitize_log, ParsedLogSignal,
+};
 use crate::connection::state_machine::{transition, ConnectionIntent};
 use crate::connection::{
     ConnectionSnapshot, ConnectionState, CredentialPrompt, CredentialSubmission, LogEntry,
@@ -634,7 +636,7 @@ fn handle_exit(
     state.snapshot.state = ConnectionState::Error;
     state.snapshot.profile_id = Some(profile_id.clone());
     state.snapshot.substate = None;
-    state.snapshot.last_error = Some(process_exit_error(code));
+    state.snapshot.last_error = Some(process_exit_error(code, state.logs.iter()));
     let _ = events.send(CoreEvent::StateChanged(state.snapshot.clone()));
     ExitAction::Stop
 }
@@ -783,7 +785,10 @@ fn tighten_dir_permissions(_path: &Path) -> Result<(), AppError> {
     Ok(())
 }
 
-fn process_exit_error(code: Option<i32>) -> UserFacingError {
+fn process_exit_error<'a>(
+    code: Option<i32>,
+    logs: impl DoubleEndedIterator<Item = &'a LogEntry>,
+) -> UserFacingError {
     match code {
         Some(126) => UserFacingError {
             code: "process_permission_denied".into(),
@@ -801,24 +806,26 @@ fn process_exit_error(code: Option<i32>) -> UserFacingError {
             ),
             details_safe: None,
         },
-        Some(code) => UserFacingError {
-            code: "process_exit".into(),
-            title: "Connection failed".into(),
-            message: format!("OpenVPN exited with status {code}."),
-            suggested_fix: Some(
-                "Inspect the connection log for the underlying failure reason.".into(),
-            ),
-            details_safe: None,
-        },
-        None => UserFacingError {
-            code: "process_terminated".into(),
-            title: "Connection terminated".into(),
-            message: "OpenVPN terminated without reporting an exit status.".into(),
-            suggested_fix: Some(
-                "Inspect the connection log for the underlying failure reason.".into(),
-            ),
-            details_safe: None,
-        },
+        _ => diagnose_exit_error(code, logs).unwrap_or_else(|| match code {
+            Some(code) => UserFacingError {
+                code: "process_exit".into(),
+                title: "Connection failed".into(),
+                message: format!("OpenVPN exited with status {code}."),
+                suggested_fix: Some(
+                    "Inspect the connection log for the underlying failure reason.".into(),
+                ),
+                details_safe: None,
+            },
+            None => UserFacingError {
+                code: "process_terminated".into(),
+                title: "Connection terminated".into(),
+                message: "OpenVPN terminated without reporting an exit status.".into(),
+                suggested_fix: Some(
+                    "Inspect the connection log for the underlying failure reason.".into(),
+                ),
+                details_safe: None,
+            },
+        }),
     }
 }
 
@@ -1172,6 +1179,49 @@ mod tests {
             failed.last_error.as_ref().map(|error| error.code.as_str()),
             Some("process_exit")
         );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn surfaces_last_openvpn_diagnostic_after_retry_budget_is_exhausted() {
+        let (manager, backend, profile_id, _, _) = build_manager(CredentialMode::None, None);
+        let sessions = [
+            backend.queue_session(Some(21)),
+            backend.queue_session(Some(22)),
+            backend.queue_session(Some(23)),
+            backend.queue_session(Some(24)),
+        ];
+
+        manager.connect(profile_id.to_string()).await.unwrap();
+        let delays = [2_u64, 5, 10];
+
+        for (index, delay) in delays.into_iter().enumerate() {
+            sessions[index]
+                .tx
+                .send(BackendEvent::Exited(Some(1)))
+                .unwrap();
+            tokio::task::yield_now().await;
+            tokio::time::advance(Duration::from_secs(delay)).await;
+            tokio::task::yield_now().await;
+        }
+
+        sessions[3]
+            .tx
+            .send(BackendEvent::Stderr(
+                "RESOLVE: Cannot resolve host address: vpn.example.invalid:1194".into(),
+            ))
+            .unwrap();
+        tokio::task::yield_now().await;
+        sessions[3].tx.send(BackendEvent::Exited(Some(1))).unwrap();
+        tokio::task::yield_now().await;
+
+        let failed = manager.snapshot();
+        let last_error = failed.last_error.expect("expected terminal error");
+        assert_eq!(failed.state, ConnectionState::Error);
+        assert_eq!(last_error.code, "openvpn_host_resolution_failed");
+        assert!(last_error
+            .details_safe
+            .as_deref()
+            .is_some_and(|detail| detail.contains("Cannot resolve host address")));
     }
 
     #[tokio::test]
