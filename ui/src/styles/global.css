@@ -96,6 +96,8 @@ input {
   -webkit-backdrop-filter: blur(20px);
   box-shadow: var(--shadow);
   transition: box-shadow 0.3s ease, border-color 0.3s ease;
+  display: flex;
+  flex-direction: column;
 }
 
 .panel-main {
@@ -610,8 +612,33 @@ input::placeholder {
 
 .modal {
   width: min(540px, 100%);
+  max-height: 85vh;
   padding: 32px;
   animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.modal-content {
+  flex: 1;
+  overflow-y: auto;
+  margin-right: -12px;
+  padding-right: 12px;
+}
+
+.modal-content::-webkit-scrollbar {
+  width: 8px;
+}
+
+.modal-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.modal-content::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+
+.modal-content::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
 }
 
 @keyframes slideUp {
