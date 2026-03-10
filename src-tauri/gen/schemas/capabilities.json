@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"Default capability for the OpenWrap desktop window","local":true,"windows":["main"],"permissions":["core:default","dialog:default","fs:default","opener:default"]}}
