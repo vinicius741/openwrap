@@ -9,8 +9,9 @@ Development setup:
 2. Install the helper with root ownership and the setuid bit:
    `sudo chown root:wheel target/debug/openwrap-helper`
    `sudo chmod 4755 target/debug/openwrap-helper`
-3. Point the app at that binary when needed:
-   `export OPENWRAP_HELPER_PATH=/Users/ilia/Documents/openwrap/target/debug/openwrap-helper`
+3. The `.env` file in the project root sets `OPENWRAP_HELPER_PATH` automatically.
+   Source it before running:
+   `source .env`
 
 Verification:
 

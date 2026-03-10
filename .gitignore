@@ -9,4 +9,5 @@ package-lock.json
 *.db-shm
 *.db-wal
 .vite/
+.env
 
