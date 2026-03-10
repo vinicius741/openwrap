@@ -2,9 +2,7 @@ use std::path::{Path, PathBuf};
 
 use crate::config::inline::{build_inline_asset, supported_inline_tag};
 use crate::errors::AppError;
-use crate::profiles::{
-    AssetKind, AssetReference, ParsedDirective, ParsedProfile,
-};
+use crate::profiles::{AssetKind, AssetReference, ParsedDirective, ParsedProfile};
 
 pub fn parse_profile(source: &str, _base_dir: &Path) -> Result<ParsedProfile, AppError> {
     let mut directives = Vec::new();
@@ -23,7 +21,10 @@ pub fn parse_profile(source: &str, _base_dir: &Path) -> Result<ParsedProfile, Ap
             continue;
         }
 
-        if let Some(tag) = line.strip_prefix('<').and_then(|value| value.strip_suffix('>')) {
+        if let Some(tag) = line
+            .strip_prefix('<')
+            .and_then(|value| value.strip_suffix('>'))
+        {
             if supported_inline_tag(tag).is_some() {
                 let mut content = String::new();
                 let closing = format!("</{tag}>");
@@ -43,7 +44,9 @@ pub fn parse_profile(source: &str, _base_dir: &Path) -> Result<ParsedProfile, Ap
                     content.push_str(inner_line);
                     content.push('\n');
                 }
-                if let Some(asset) = build_inline_asset(tag, start_line, content.trim_end().to_string()) {
+                if let Some(asset) =
+                    build_inline_asset(tag, start_line, content.trim_end().to_string())
+                {
                     inline_assets.push(asset);
                 }
                 continue;
@@ -56,7 +59,10 @@ pub fn parse_profile(source: &str, _base_dir: &Path) -> Result<ParsedProfile, Ap
         }
 
         let name = tokens[0].to_ascii_lowercase();
-        let args = tokens[1..].iter().map(|value| value.to_string()).collect::<Vec<_>>();
+        let args = tokens[1..]
+            .iter()
+            .map(|value| value.to_string())
+            .collect::<Vec<_>>();
         directives.push(ParsedDirective {
             name: name.clone(),
             args: args.clone(),

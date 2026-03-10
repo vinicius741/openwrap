@@ -105,4 +105,3 @@ pub struct LogEntry {
 }
 
 pub type LogBuffer = VecDeque<LogEntry>;
-

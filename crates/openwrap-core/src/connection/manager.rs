@@ -297,9 +297,9 @@ impl ConnectionManager {
         let _ = self
             .events
             .send(CoreEvent::StateChanged(state.snapshot.clone()));
-        let _ = self
-            .events
-            .send(CoreEvent::DnsObserved(state.snapshot.dns_observation.clone()));
+        let _ = self.events.send(CoreEvent::DnsObserved(
+            state.snapshot.dns_observation.clone(),
+        ));
     }
 }
 
@@ -341,7 +341,9 @@ fn start_connect_attempt(
         }
         state.snapshot.dns_observation = dns_observer.from_profile(&plan.detail.profile.dns_intent);
         let _ = events.send(CoreEvent::StateChanged(state.snapshot.clone()));
-        let _ = events.send(CoreEvent::DnsObserved(state.snapshot.dns_observation.clone()));
+        let _ = events.send(CoreEvent::DnsObserved(
+            state.snapshot.dns_observation.clone(),
+        ));
     }
 
     let settings = match repository.get_settings() {

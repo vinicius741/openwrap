@@ -17,7 +17,11 @@ pub async fn connect(
     state: tauri::State<'_, AppState>,
     profile_id: String,
 ) -> Result<openwrap_core::connection::ConnectionSnapshot, CommandError> {
-    state.connection_manager.connect(profile_id).await.map_err(Into::into)
+    state
+        .connection_manager
+        .connect(profile_id)
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -44,7 +48,11 @@ pub async fn submit_credentials(
 pub async fn disconnect(
     state: tauri::State<'_, AppState>,
 ) -> Result<openwrap_core::connection::ConnectionSnapshot, CommandError> {
-    state.connection_manager.disconnect().await.map_err(Into::into)
+    state
+        .connection_manager
+        .disconnect()
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]

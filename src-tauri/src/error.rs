@@ -17,4 +17,3 @@ impl From<AppError> for CommandError {
         }
     }
 }
-

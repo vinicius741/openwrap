@@ -46,7 +46,10 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
                 tauri::async_runtime::spawn(async move {
                     let state = app_handle.state::<AppState>();
                     if let Some((profile_id, _)) = resolve_connect_target(&state) {
-                        let _ = state.connection_manager.connect(profile_id.to_string()).await;
+                        let _ = state
+                            .connection_manager
+                            .connect(profile_id.to_string())
+                            .await;
                     }
                 });
                 let _ = app.emit(TRAY_ACTION, "connect");
@@ -125,7 +128,10 @@ fn apply_tray_state(app: &AppHandle, snapshot: &ConnectionSnapshot, target_name:
         let _ = state.connect.set_text(&connect_label);
 
         let can_connect = target_name.is_some()
-            && matches!(snapshot.state, ConnectionState::Idle | ConnectionState::Error);
+            && matches!(
+                snapshot.state,
+                ConnectionState::Idle | ConnectionState::Error
+            );
         let can_disconnect = matches!(
             snapshot.state,
             ConnectionState::Connecting

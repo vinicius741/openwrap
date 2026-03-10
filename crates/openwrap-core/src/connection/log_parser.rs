@@ -70,6 +70,9 @@ mod tests {
 
     #[test]
     fn classifies_dns_hints() {
-        assert_eq!(classify_signal("PUSH_REPLY,dhcp-option DNS 1.1.1.1"), ParsedLogSignal::DnsHint);
+        assert_eq!(
+            classify_signal("PUSH_REPLY,dhcp-option DNS 1.1.1.1"),
+            ParsedLogSignal::DnsHint
+        );
     }
 }

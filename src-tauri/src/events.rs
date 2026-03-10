@@ -4,4 +4,3 @@ pub const CONNECTION_CREDENTIALS_REQUESTED: &str = "connection://credentials-req
 pub const CONNECTION_DNS_OBSERVED: &str = "connection://dns-observed";
 pub const PROFILES_IMPORT_COMPLETED: &str = "profiles://import-completed";
 pub const TRAY_ACTION: &str = "tray://action";
-

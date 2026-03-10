@@ -12,4 +12,3 @@ pub struct StoredSecret {
 }
 
 pub use keychain::KeychainSecretStore;
-

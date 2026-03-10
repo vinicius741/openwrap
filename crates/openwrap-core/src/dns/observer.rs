@@ -85,7 +85,11 @@ fn extract_dns_directives(line: &str) -> Vec<String> {
 }
 
 fn push_warning(observation: &mut DnsObservation, warning: &str) -> bool {
-    if observation.warnings.iter().any(|current| current == warning) {
+    if observation
+        .warnings
+        .iter()
+        .any(|current| current == warning)
+    {
         false
     } else {
         observation.warnings.push(warning.into());
@@ -113,7 +117,10 @@ mod tests {
             &mut observation,
             "PUSH_REPLY,route-gateway 10.0.0.1,dhcp-option DNS 10.0.0.2,dhcp-option DNS 10.0.0.3"
         ));
-        assert_eq!(observation.runtime_pushed, vec!["DNS 10.0.0.2", "DNS 10.0.0.3"]);
+        assert_eq!(
+            observation.runtime_pushed,
+            vec!["DNS 10.0.0.2", "DNS 10.0.0.3"]
+        );
         assert!(observer.update_from_log(&mut observation, "PUSH_REPLY,route-gateway 10.0.0.1"));
         assert_eq!(observation.warnings.len(), 1);
     }

@@ -9,4 +9,3 @@ pub use session::{
     ConnectionSnapshot, ConnectionState, CredentialPrompt, CredentialSubmission, LogEntry,
     LogLevel, SessionId,
 };
-

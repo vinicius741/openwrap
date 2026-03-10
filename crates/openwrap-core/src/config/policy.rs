@@ -1,8 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::profiles::{
-    ValidationAction, ValidationFinding, ValidationSeverity,
-};
+use crate::profiles::{ValidationAction, ValidationFinding, ValidationSeverity};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum DirectiveClassification {
@@ -95,7 +93,9 @@ pub fn finding_for(
             severity: ValidationSeverity::Warn,
             directive: name.to_string(),
             line,
-            message: format!("'{name}' changes routing or environment behavior and needs approval."),
+            message: format!(
+                "'{name}' changes routing or environment behavior and needs approval."
+            ),
             action: ValidationAction::RequireApproval,
         }),
         DirectiveClassification::Blocked => Some(ValidationFinding {
@@ -114,8 +114,14 @@ mod tests {
 
     #[test]
     fn classifies_known_directives() {
-        assert_eq!(classify_directive("client", &[]), DirectiveClassification::Allowed);
-        assert_eq!(classify_directive("tls-client", &[]), DirectiveClassification::Allowed);
+        assert_eq!(
+            classify_directive("client", &[]),
+            DirectiveClassification::Allowed
+        );
+        assert_eq!(
+            classify_directive("tls-client", &[]),
+            DirectiveClassification::Allowed
+        );
         assert_eq!(
             classify_directive("explicit-exit-notify", &[String::from("1")]),
             DirectiveClassification::Allowed
@@ -133,34 +139,43 @@ mod tests {
             DirectiveClassification::Warned
         );
         assert_eq!(
-            classify_directive("route", &[String::from("10.0.0.1"), String::from("255.255.255.255")]),
+            classify_directive(
+                "route",
+                &[String::from("10.0.0.1"), String::from("255.255.255.255")]
+            ),
             DirectiveClassification::Warned
         );
         assert_eq!(
             classify_directive(
                 "pull-filter",
-                &[
-                    String::from("ignore"),
-                    String::from("redirect-gateway"),
-                ]
+                &[String::from("ignore"), String::from("redirect-gateway"),]
             ),
             DirectiveClassification::Warned
         );
         assert_eq!(
-            classify_directive("dhcp-option", &[String::from("DNS"), String::from("1.1.1.1")]),
+            classify_directive(
+                "dhcp-option",
+                &[String::from("DNS"), String::from("1.1.1.1")]
+            ),
             DirectiveClassification::Warned
         );
         assert_eq!(
             classify_directive("setenv", &[String::from("CLIENT_CERT"), String::from("0")]),
             DirectiveClassification::Allowed
         );
-        assert_eq!(classify_directive("plugin", &[]), DirectiveClassification::Blocked);
+        assert_eq!(
+            classify_directive("plugin", &[]),
+            DirectiveClassification::Blocked
+        );
         assert_eq!(
             classify_directive("script-security", &[String::from("2")]),
             DirectiveClassification::Blocked
         );
         assert_eq!(
-            classify_directive("dhcp-option", &[String::from("DOMAIN"), String::from("corp.example")]),
+            classify_directive(
+                "dhcp-option",
+                &[String::from("DOMAIN"), String::from("corp.example")]
+            ),
             DirectiveClassification::Blocked
         );
         assert_eq!(

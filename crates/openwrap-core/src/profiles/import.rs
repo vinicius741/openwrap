@@ -12,8 +12,8 @@ use crate::errors::AppError;
 use crate::profiles::repository::ProfileRepository;
 use crate::profiles::{
     AssetId, AssetKind, AssetOrigin, CredentialMode, ImportReport, ImportStatus, ManagedAsset,
-    Profile, ProfileId, ProfileImportResult, ValidationAction, ValidationFinding, ValidationSeverity,
-    ValidationStatus,
+    Profile, ProfileId, ProfileImportResult, ValidationAction, ValidationFinding,
+    ValidationSeverity, ValidationStatus,
 };
 
 #[derive(Debug, Clone)]
@@ -75,7 +75,10 @@ impl ProfileImporter {
                     severity: ValidationSeverity::Warn,
                     directive: directive.name.clone(),
                     line: directive.line,
-                    message: format!("'{}' requires explicit approval during import.", directive.name),
+                    message: format!(
+                        "'{}' requires explicit approval during import.",
+                        directive.name
+                    ),
                     action: ValidationAction::RequireApproval,
                 }),
                 DirectiveClassification::Blocked => findings.push(ValidationFinding {
@@ -108,12 +111,18 @@ impl ProfileImporter {
 
         if !blocked.is_empty() {
             report.status = ImportStatus::Blocked;
-            return Ok(ImportProfileResponse { profile: None, report });
+            return Ok(ImportProfileResponse {
+                profile: None,
+                report,
+            });
         }
 
         if !warnings.is_empty() && !request.allow_warnings {
             report.status = ImportStatus::NeedsApproval;
-            return Ok(ImportProfileResponse { profile: None, report });
+            return Ok(ImportProfileResponse {
+                profile: None,
+                report,
+            });
         }
 
         let profile_id = ProfileId::new();
@@ -155,17 +164,23 @@ impl ProfileImporter {
                 }
             };
             if !resolved.exists() {
-                report.missing_files.push(resolved.to_string_lossy().to_string());
                 report
-                    .errors
-                    .push(format!("Line {} references a missing file: {}", asset.line, resolved.display()));
+                    .missing_files
+                    .push(resolved.to_string_lossy().to_string());
+                report.errors.push(format!(
+                    "Line {} references a missing file: {}",
+                    asset.line,
+                    resolved.display()
+                ));
                 continue;
             }
             let relative_path = format!("assets/{}", asset.kind.file_name());
             let target = managed_dir.join(&relative_path);
             fs::copy(&resolved, &target)?;
             report.copied_assets.push(relative_path.clone());
-            report.rewritten_paths.push(format!("{} -> {}", asset.directive, relative_path));
+            report
+                .rewritten_paths
+                .push(format!("{} -> {}", asset.directive, relative_path));
             rewritten_assets.insert(asset.kind.clone(), relative_path.clone());
             assets.push(build_asset(
                 profile_id.clone(),
@@ -194,7 +209,9 @@ impl ProfileImporter {
             let target = managed_dir.join(&relative_path);
             fs::write(&target, &inline.content)?;
             report.copied_assets.push(relative_path.clone());
-            report.rewritten_paths.push(format!("inline {} -> {}", inline.directive, relative_path));
+            report
+                .rewritten_paths
+                .push(format!("inline {} -> {}", inline.directive, relative_path));
             rewritten_assets.insert(inline.kind.clone(), relative_path.clone());
             assets.push(build_asset(
                 profile_id.clone(),
@@ -208,11 +225,17 @@ impl ProfileImporter {
         if !report.missing_files.is_empty() || !report.errors.is_empty() {
             let _ = fs::remove_dir_all(&managed_dir);
             report.status = ImportStatus::Blocked;
-            return Ok(ImportProfileResponse { profile: None, report });
+            return Ok(ImportProfileResponse {
+                profile: None,
+                report,
+            });
         }
 
         let managed_ovpn_path = managed_dir.join("profile.ovpn");
-        fs::write(&managed_ovpn_path, rewrite_profile(&parsed, &rewritten_assets))?;
+        fs::write(
+            &managed_ovpn_path,
+            rewrite_profile(&parsed, &rewritten_assets),
+        )?;
 
         let validation_status = if warnings.is_empty() {
             ValidationStatus::Ok
@@ -282,12 +305,14 @@ fn resolve_asset_path(source_dir: &Path, candidate: &Path) -> Result<PathBuf, Ap
         source_dir.join(candidate)
     };
 
-    let parent = candidate_path.parent().ok_or_else(|| AppError::Validation {
-        title: "Invalid asset path".into(),
-        message: "Referenced asset path has no parent directory.".into(),
-        directive: None,
-        line: None,
-    })?;
+    let parent = candidate_path
+        .parent()
+        .ok_or_else(|| AppError::Validation {
+            title: "Invalid asset path".into(),
+            message: "Referenced asset path has no parent directory.".into(),
+            directive: None,
+            line: None,
+        })?;
     let canonical_parent = fs::canonicalize(parent)?;
 
     if !canonical_parent.starts_with(source_dir) {
@@ -410,7 +435,10 @@ mod tests {
             .unwrap();
 
         assert!(response.profile.is_none());
-        assert_eq!(response.report.status, crate::profiles::ImportStatus::Blocked);
+        assert_eq!(
+            response.report.status,
+            crate::profiles::ImportStatus::Blocked
+        );
         assert_eq!(response.report.missing_files.len(), 1);
         assert_eq!(response.report.errors.len(), 1);
     }
@@ -441,7 +469,10 @@ mod tests {
             .unwrap();
 
         assert!(response.profile.is_none());
-        assert_eq!(response.report.status, crate::profiles::ImportStatus::Blocked);
+        assert_eq!(
+            response.report.status,
+            crate::profiles::ImportStatus::Blocked
+        );
         assert!(response
             .report
             .errors
@@ -507,7 +538,10 @@ mod tests {
             .unwrap();
 
         assert!(response.profile.is_none());
-        assert_eq!(response.report.status, crate::profiles::ImportStatus::Blocked);
+        assert_eq!(
+            response.report.status,
+            crate::profiles::ImportStatus::Blocked
+        );
         assert!(response
             .report
             .errors
@@ -566,7 +600,10 @@ static-key
             .unwrap();
 
         assert!(preview.profile.is_none());
-        assert_eq!(preview.report.status, crate::profiles::ImportStatus::NeedsApproval);
+        assert_eq!(
+            preview.report.status,
+            crate::profiles::ImportStatus::NeedsApproval
+        );
         assert!(preview.report.errors.is_empty());
         assert_eq!(preview.report.warnings.len(), 3);
 
@@ -579,7 +616,10 @@ static-key
             .unwrap();
 
         assert!(imported.profile.is_some());
-        assert_eq!(imported.report.status, crate::profiles::ImportStatus::Imported);
+        assert_eq!(
+            imported.report.status,
+            crate::profiles::ImportStatus::Imported
+        );
         assert!(imported.report.errors.is_empty());
 
         let profile = imported.profile.unwrap();

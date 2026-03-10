@@ -52,8 +52,8 @@ mod platform {
     }
 
     pub fn set_password(account: &str, secret: &StoredSecret) -> Result<(), AppError> {
-        let payload =
-            serde_json::to_vec(secret).map_err(|error| AppError::Serialization(error.to_string()))?;
+        let payload = serde_json::to_vec(secret)
+            .map_err(|error| AppError::Serialization(error.to_string()))?;
         set_generic_password(SERVICE_NAME, account, &payload)
             .map_err(|error| AppError::Keychain(error.to_string()))
     }

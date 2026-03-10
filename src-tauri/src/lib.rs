@@ -27,16 +27,19 @@ pub fn run() {
                     match event {
                         CoreEvent::StateChanged(payload) => {
                             crate::tray::sync_connection_state(&events_app, &payload);
-                            let _ = events_app.emit(crate::events::CONNECTION_STATE_CHANGED, payload);
+                            let _ =
+                                events_app.emit(crate::events::CONNECTION_STATE_CHANGED, payload);
                         }
                         CoreEvent::LogLine(payload) => {
                             let _ = events_app.emit(crate::events::CONNECTION_LOG_LINE, payload);
                         }
                         CoreEvent::CredentialsRequested(payload) => {
-                            let _ = events_app.emit(crate::events::CONNECTION_CREDENTIALS_REQUESTED, payload);
+                            let _ = events_app
+                                .emit(crate::events::CONNECTION_CREDENTIALS_REQUESTED, payload);
                         }
                         CoreEvent::DnsObserved(payload) => {
-                            let _ = events_app.emit(crate::events::CONNECTION_DNS_OBSERVED, payload);
+                            let _ =
+                                events_app.emit(crate::events::CONNECTION_DNS_OBSERVED, payload);
                         }
                     }
                 }

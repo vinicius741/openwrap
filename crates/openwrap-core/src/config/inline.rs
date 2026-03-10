@@ -19,4 +19,3 @@ pub fn build_inline_asset(tag: &str, line: usize, content: String) -> Option<Inl
         line,
     })
 }
-

@@ -65,9 +65,9 @@ impl From<&AppError> for UserFacingError {
                 code: "validation_failed".into(),
                 title: title.clone(),
                 message: message.clone(),
-                suggested_fix: directive
-                    .as_ref()
-                    .map(|directive| format!("Remove or change the unsupported '{directive}' directive.")),
+                suggested_fix: directive.as_ref().map(|directive| {
+                    format!("Remove or change the unsupported '{directive}' directive.")
+                }),
                 details_safe: line.map(|line| format!("line {line}")),
             },
             AppError::OpenVpnBinaryNotFound => Self {
@@ -83,7 +83,9 @@ impl From<&AppError> for UserFacingError {
                 code: "openvpn_launch_failed".into(),
                 title: "OpenVPN failed to start".into(),
                 message: message.clone(),
-                suggested_fix: Some("Check the selected OpenVPN binary path and profile validity.".into()),
+                suggested_fix: Some(
+                    "Check the selected OpenVPN binary path and profile validity.".into(),
+                ),
                 details_safe: None,
             },
             AppError::Keychain(message) => Self {

@@ -225,11 +225,9 @@ impl ProfileRepository for SqliteRepository {
     fn get_settings(&self) -> Result<Settings, AppError> {
         let connection = self.connection.lock();
         let value = connection
-            .query_row(
-                "SELECT value FROM settings WHERE key = 'app'",
-                [],
-                |row| row.get::<_, String>(0),
-            )
+            .query_row("SELECT value FROM settings WHERE key = 'app'", [], |row| {
+                row.get::<_, String>(0)
+            })
             .optional()?;
 
         match value {
@@ -263,10 +261,7 @@ impl ProfileRepository for SqliteRepository {
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
     }
 
-    fn set_last_selected_profile(
-        &self,
-        profile_id: Option<&ProfileId>,
-    ) -> Result<(), AppError> {
+    fn set_last_selected_profile(&self, profile_id: Option<&ProfileId>) -> Result<(), AppError> {
         let value = profile_id.map(|value| value.to_string());
         self.connection.lock().execute(
             "INSERT INTO settings (key, value) VALUES ('last_selected_profile', ?1)
@@ -288,7 +283,9 @@ impl ProfileRepository for SqliteRepository {
             .flatten();
 
         value
-            .map(|value| ProfileId::from_str(&value).map_err(|error| AppError::Settings(error.to_string())))
+            .map(|value| {
+                ProfileId::from_str(&value).map_err(|error| AppError::Settings(error.to_string()))
+            })
             .transpose()
     }
 }

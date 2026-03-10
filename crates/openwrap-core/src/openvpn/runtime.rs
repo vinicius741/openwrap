@@ -30,11 +30,12 @@ pub fn detect_openvpn_binaries(override_path: Option<PathBuf>) -> OpenVpnDetecti
         }
     }
 
-    let selected_path = override_path.filter(|path| path.exists()).or_else(|| discovered_paths.first().cloned());
+    let selected_path = override_path
+        .filter(|path| path.exists())
+        .or_else(|| discovered_paths.first().cloned());
 
     OpenVpnDetection {
         discovered_paths,
         selected_path,
     }
 }
-

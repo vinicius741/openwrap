@@ -11,6 +11,7 @@ use tokio::sync::{mpsc, Mutex as AsyncMutex};
 use crate::connection::SessionId;
 use crate::errors::AppError;
 use crate::openvpn::backend::{BackendEvent, ConnectRequest, SpawnedSession};
+use crate::openvpn::config_working_dir;
 use crate::VpnBackend;
 
 #[derive(Debug)]
@@ -32,10 +33,12 @@ impl DirectOpenVpnBackend {
 
 impl VpnBackend for DirectOpenVpnBackend {
     fn connect(&self, request: ConnectRequest) -> Result<SpawnedSession, AppError> {
+        let working_dir = config_working_dir(&request.config_path)?;
         let mut command = Command::new(&request.openvpn_binary);
         command.arg("--config").arg(&request.config_path);
         command.arg("--auth-nocache");
         command.arg("--verb").arg("3");
+        command.current_dir(working_dir);
 
         if let Some(auth_file) = &request.auth_file {
             command.arg("--auth-user-pass").arg(auth_file);
@@ -126,5 +129,74 @@ fn map_spawn_error(error: std::io::Error) -> AppError {
             AppError::OpenVpnLaunch("Selected OpenVPN binary is not executable.".into())
         }
         _ => AppError::OpenVpnLaunch(error.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::PathBuf;
+    use std::time::Duration;
+
+    use tempfile::tempdir;
+    use tokio::time::timeout;
+
+    use super::DirectOpenVpnBackend;
+    use crate::connection::SessionId;
+    use crate::openvpn::{BackendEvent, ConnectRequest};
+    use crate::profiles::ProfileId;
+    use crate::VpnBackend;
+
+    #[tokio::test]
+    async fn launches_openvpn_from_config_directory() {
+        let temp = tempdir().unwrap();
+        let profile_dir = temp.path().join("profiles").join("profile-1");
+        let runtime_dir = temp
+            .path()
+            .join("runtime")
+            .join("profile-1")
+            .join("session-1");
+        fs::create_dir_all(&profile_dir).unwrap();
+        fs::create_dir_all(&runtime_dir).unwrap();
+
+        let fake_openvpn = temp.path().join("fake-openvpn.sh");
+        fs::write(&fake_openvpn, "#!/bin/sh\npwd\n").unwrap();
+        let mut permissions = fs::metadata(&fake_openvpn).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&fake_openvpn, permissions).unwrap();
+
+        let config_path = profile_dir.join("profile.ovpn");
+        fs::write(&config_path, "client\n").unwrap();
+
+        let backend = DirectOpenVpnBackend::new();
+        let spawned = backend
+            .connect(ConnectRequest {
+                session_id: SessionId::new(),
+                profile_id: ProfileId::new(),
+                openvpn_binary: fake_openvpn,
+                config_path,
+                auth_file: None,
+                runtime_dir,
+            })
+            .unwrap();
+
+        let mut event_rx = spawned.event_rx;
+        let stdout = timeout(Duration::from_secs(2), async {
+            loop {
+                match event_rx.recv().await {
+                    Some(BackendEvent::Stdout(line)) => return line,
+                    Some(_) => continue,
+                    None => panic!("backend closed before emitting stdout"),
+                }
+            }
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(
+            PathBuf::from(stdout).canonicalize().unwrap(),
+            profile_dir.canonicalize().unwrap()
+        );
     }
 }

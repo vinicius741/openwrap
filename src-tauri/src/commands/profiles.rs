@@ -20,15 +20,18 @@ pub fn import_profile(
     state: tauri::State<'_, AppState>,
     request: ImportProfileRequestDto,
 ) -> Result<openwrap_core::profiles::ImportProfileResponse, CommandError> {
-    let response = state
-        .importer
-        .import_profile(openwrap_core::profiles::ImportProfileRequest {
-            source_path: request.file_path.into(),
-            display_name: request.display_name,
-            allow_warnings: request.allow_warnings,
-        })?;
+    let response =
+        state
+            .importer
+            .import_profile(openwrap_core::profiles::ImportProfileRequest {
+                source_path: request.file_path.into(),
+                display_name: request.display_name,
+                allow_warnings: request.allow_warnings,
+            })?;
     app.emit(PROFILES_IMPORT_COMPLETED, &response)
-        .map_err(|error| CommandError::from(openwrap_core::AppError::Settings(error.to_string())))?;
+        .map_err(|error| {
+            CommandError::from(openwrap_core::AppError::Settings(error.to_string()))
+        })?;
     Ok(response)
 }
 
@@ -36,7 +39,10 @@ pub fn import_profile(
 pub fn list_profiles(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<openwrap_core::profiles::ProfileSummary>, CommandError> {
-    state.profile_repository().list_profiles().map_err(Into::into)
+    state
+        .profile_repository()
+        .list_profiles()
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -44,10 +50,14 @@ pub fn get_profile(
     state: tauri::State<'_, AppState>,
     profile_id: String,
 ) -> Result<openwrap_core::profiles::ProfileDetail, CommandError> {
-    let profile_id: openwrap_core::profiles::ProfileId = profile_id
-        .parse()
-        .map_err(|error: uuid::Error| openwrap_core::AppError::ConnectionState(error.to_string()))?;
-    state.profile_repository().get_profile(&profile_id).map_err(Into::into)
+    let profile_id: openwrap_core::profiles::ProfileId =
+        profile_id.parse().map_err(|error: uuid::Error| {
+            openwrap_core::AppError::ConnectionState(error.to_string())
+        })?;
+    state
+        .profile_repository()
+        .get_profile(&profile_id)
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -71,7 +81,9 @@ pub fn set_last_selected_profile(
         .as_deref()
         .map(str::parse::<openwrap_core::profiles::ProfileId>)
         .transpose()
-        .map_err(|error: uuid::Error| openwrap_core::AppError::ConnectionState(error.to_string()))?;
+        .map_err(|error: uuid::Error| {
+            openwrap_core::AppError::ConnectionState(error.to_string())
+        })?;
     state
         .profile_repository()
         .set_last_selected_profile(parsed.as_ref())?;

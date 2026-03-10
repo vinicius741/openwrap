@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
 
+use openwrap_core::openvpn::config_working_dir;
 use openwrap_core::openvpn::helper_protocol::HelperEvent;
 use openwrap_core::openvpn::ConnectRequest;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
@@ -41,11 +42,18 @@ async fn run_connect() -> i32 {
     }
 
     let mut command = Command::new(&request.openvpn_binary);
+    let working_dir = match config_working_dir(&request.config_path) {
+        Ok(path) => path,
+        Err(error) => {
+            eprintln!("{error}");
+            return 78;
+        }
+    };
     command.arg("--config").arg(&request.config_path);
     command.arg("--auth-nocache");
     command.arg("--verb").arg("3");
     command.env_clear();
-    command.current_dir(&request.runtime_dir);
+    command.current_dir(working_dir);
 
     if let Some(auth_file) = &request.auth_file {
         command.arg("--auth-user-pass").arg(auth_file);

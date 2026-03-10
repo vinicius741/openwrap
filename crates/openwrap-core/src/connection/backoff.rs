@@ -6,4 +6,3 @@ pub fn retry_delay_seconds(retry_count: u8) -> Option<u64> {
         _ => None,
     }
 }
-
