@@ -11,3 +11,4 @@ package-lock.json
 .vite/
 .env
 
+*.ovpn
