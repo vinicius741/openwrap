@@ -222,6 +222,14 @@ export const useAppStore = create<AppStore>((set, get) => ({
       set((state) => ({
         connection: snapshot,
         pendingCredentialPrompt: null,
+        profiles: state.profiles.map((profile) =>
+          profile.id === prompt.profile_id
+            ? {
+                ...profile,
+                has_saved_credentials: rememberInKeychain,
+              }
+            : profile,
+        ),
         selectedProfile: state.selectedProfile
           ? {
               ...state.selectedProfile,
@@ -229,7 +237,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
                 ...state.selectedProfile.profile,
                 has_saved_credentials:
                   state.selectedProfile.profile.id === prompt.profile_id
-                    ? rememberInKeychain || state.selectedProfile.profile.has_saved_credentials
+                    ? rememberInKeychain
                     : state.selectedProfile.profile.has_saved_credentials,
               },
             }
@@ -258,7 +266,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       logs: [...state.logs.slice(-399), entry],
     })),
 
-  setCredentialPrompt: (pendingCredentialPrompt) => set({ pendingCredentialPrompt }),
+  setCredentialPrompt: (pendingCredentialPrompt) => set({ pendingCredentialPrompt, error: null }),
 
   setDetection: (detection) => set({ detection }),
 

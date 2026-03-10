@@ -75,6 +75,7 @@ impl Default for ConnectionSnapshot {
 pub struct CredentialPrompt {
     pub profile_id: ProfileId,
     pub remember_supported: bool,
+    pub saved_username: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

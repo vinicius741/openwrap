@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { StatusBadge } from '../../components/StatusBadge'
 import { useAppStore } from '../../store/appStore'
@@ -14,6 +14,16 @@ export function ConnectionPanel() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [remember, setRemember] = useState(true)
+
+  useEffect(() => {
+    if (!prompt) {
+      return
+    }
+
+    setUsername(prompt.saved_username ?? '')
+    setPassword('')
+    setRemember(true)
+  }, [prompt])
 
   const isConnected =
     connection?.state === 'connected' ||
@@ -51,7 +61,7 @@ export function ConnectionPanel() {
             <strong className="metadata-value">{connection?.dns_observation.effective_mode ?? 'ObserveOnly'}</strong>
           </div>
           <div className="metadata-item">
-            <span className="metadata-label">Saved credentials</span>
+            <span className="metadata-label">Saved username</span>
             <strong className="metadata-value">{selectedProfile?.profile.has_saved_credentials ? 'Yes' : 'No'}</strong>
           </div>
         </div>
@@ -95,7 +105,7 @@ export function ConnectionPanel() {
           </label>
           <label className="checkbox-row">
             <input checked={remember} onChange={(event) => setRemember(event.target.checked)} type="checkbox" />
-            Save in Keychain
+            Remember username
           </label>
           <button className="action-button action-primary" type="submit">
             Continue

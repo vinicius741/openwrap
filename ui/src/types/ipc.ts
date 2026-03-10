@@ -101,6 +101,7 @@ export interface ConnectionSnapshot {
 export interface CredentialPrompt {
   profile_id: string
   remember_supported: boolean
+  saved_username: string | null
 }
 
 export interface LogEntry {

@@ -6,12 +6,12 @@ Current status:
 - Greenfield MVP scaffold
 - Profile import, validation, storage, and listing implemented
 - macOS helper-backed OpenVPN launch path implemented behind the core `VpnBackend` abstraction
-- Native macOS Keychain storage is used for remembered credentials
+- Native macOS Keychain storage is used for remembered usernames only
 - DNS remains observe-only and is surfaced from profile intent plus parsed OpenVPN runtime pushes
 - Tray state follows the current connection state and the last selected profile
 
 Security notes:
-- Credentials are never stored in SQLite or plaintext config files.
+- Passwords are never stored in SQLite, Keychain, or plaintext config files.
 - Imported profiles are treated as untrusted input and unsupported directives are blocked by default.
 - Import blocks now include clearer failure reports for missing files, path traversal attempts, duplicate managed assets, and unsupported DHCP options.
 

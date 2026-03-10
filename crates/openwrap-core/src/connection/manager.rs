@@ -138,11 +138,10 @@ impl ConnectionManager {
         self.transition_snapshot(ConnectionIntent::BeginConnect, Some(profile_id.clone()))?;
 
         if detail.profile.credential_mode == CredentialMode::UserPass {
-            if let Some(secret) = self.secret_store.get_password(&profile_id)? {
-                return self
-                    .start_connect(detail, Some(secret.username), Some(secret.password), false)
-                    .await;
-            }
+            let saved_username = self
+                .secret_store
+                .get_password(&profile_id)?
+                .map(|secret| secret.username);
 
             {
                 let mut state = self.state.lock();
@@ -154,6 +153,7 @@ impl ConnectionManager {
             let prompt = CredentialPrompt {
                 profile_id,
                 remember_supported: true,
+                saved_username,
             };
             let _ = self.events.send(CoreEvent::CredentialsRequested(prompt));
             return Ok(self.snapshot());
@@ -180,10 +180,13 @@ impl ConnectionManager {
                 .set_password(crate::secrets::StoredSecret {
                     profile_id: submission.profile_id.clone(),
                     username: submission.username.clone(),
-                    password: submission.password.clone(),
                 })?;
             self.repository
                 .update_has_saved_credentials(&submission.profile_id, true)?;
+        } else {
+            self.secret_store.delete_password(&submission.profile_id)?;
+            self.repository
+                .update_has_saved_credentials(&submission.profile_id, false)?;
         }
 
         self.start_connect(
@@ -831,7 +834,7 @@ mod tests {
     use tempfile::tempdir;
     use tokio::sync::mpsc;
 
-    use super::ConnectionManager;
+    use super::{ConnectionManager, CoreEvent};
     use crate::app_state::AppPaths;
     use crate::connection::{ConnectionState, CredentialSubmission, SessionId};
     use crate::errors::AppError;
@@ -846,23 +849,23 @@ mod tests {
 
     #[derive(Default)]
     struct FakeSecretStore {
-        passwords: Mutex<HashMap<ProfileId, StoredSecret>>,
+        secrets: Mutex<HashMap<ProfileId, StoredSecret>>,
     }
 
     impl SecretStore for FakeSecretStore {
         fn get_password(&self, profile_id: &ProfileId) -> Result<Option<StoredSecret>, AppError> {
-            Ok(self.passwords.lock().get(profile_id).cloned())
+            Ok(self.secrets.lock().get(profile_id).cloned())
         }
 
         fn set_password(&self, secret: StoredSecret) -> Result<(), AppError> {
-            self.passwords
+            self.secrets
                 .lock()
                 .insert(secret.profile_id.clone(), secret);
             Ok(())
         }
 
         fn delete_password(&self, profile_id: &ProfileId) -> Result<(), AppError> {
-            self.passwords.lock().remove(profile_id);
+            self.secrets.lock().remove(profile_id);
             Ok(())
         }
     }
@@ -1019,7 +1022,14 @@ mod tests {
 
     fn build_manager(
         credential_mode: CredentialMode,
-    ) -> (ConnectionManager, FakeBackend, ProfileId) {
+        saved_username: Option<&str>,
+    ) -> (
+        ConnectionManager,
+        FakeBackend,
+        ProfileId,
+        Arc<FakeSecretStore>,
+        Arc<FakeRepository>,
+    ) {
         let temp = tempdir().unwrap();
         let base_dir = temp.path().to_path_buf();
         std::mem::forget(temp);
@@ -1062,22 +1072,31 @@ mod tests {
             },
             last_selected: Mutex::new(None),
             touch_count: Mutex::new(0),
-            saved_credentials: Mutex::new(false),
+            saved_credentials: Mutex::new(saved_username.is_some()),
         });
         let backend = FakeBackend::default();
+        let secret_store = Arc::new(FakeSecretStore::default());
+        if let Some(username) = saved_username {
+            secret_store
+                .set_password(StoredSecret {
+                    profile_id: profile_id.clone(),
+                    username: username.into(),
+                })
+                .unwrap();
+        }
         let manager = ConnectionManager::new(
             paths,
-            repository,
-            Arc::new(FakeSecretStore::default()),
+            repository.clone(),
+            secret_store.clone(),
             Arc::new(backend.clone()),
         );
 
-        (manager, backend, profile_id)
+        (manager, backend, profile_id, secret_store, repository)
     }
 
     #[tokio::test(start_paused = true)]
     async fn retries_after_exit_and_recovers() {
-        let (manager, backend, profile_id) = build_manager(CredentialMode::None);
+        let (manager, backend, profile_id, _, _) = build_manager(CredentialMode::None, None);
         let first = backend.queue_session(Some(41));
         let second = backend.queue_session(Some(42));
 
@@ -1120,7 +1139,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn stops_after_retry_budget_is_exhausted() {
-        let (manager, backend, profile_id) = build_manager(CredentialMode::None);
+        let (manager, backend, profile_id, _, _) = build_manager(CredentialMode::None, None);
         let sessions = [
             backend.queue_session(Some(11)),
             backend.queue_session(Some(12)),
@@ -1157,7 +1176,7 @@ mod tests {
 
     #[tokio::test]
     async fn cleans_runtime_artifacts_for_credentials_and_disconnect() {
-        let (manager, backend, profile_id) = build_manager(CredentialMode::UserPass);
+        let (manager, backend, profile_id, _, _) = build_manager(CredentialMode::UserPass, None);
         let session = backend.queue_session(Some(51));
 
         manager.connect(profile_id.to_string()).await.unwrap();
@@ -1195,7 +1214,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn auth_failures_do_not_retry() {
-        let (manager, backend, profile_id) = build_manager(CredentialMode::None);
+        let (manager, backend, profile_id, _, _) = build_manager(CredentialMode::None, None);
         let session = backend.queue_session(Some(61));
 
         manager.connect(profile_id.to_string()).await.unwrap();
@@ -1221,7 +1240,7 @@ mod tests {
 
     #[tokio::test]
     async fn launch_failures_surface_as_terminal_errors() {
-        let (manager, backend, profile_id) = build_manager(CredentialMode::None);
+        let (manager, backend, profile_id, _, _) = build_manager(CredentialMode::None, None);
         backend.queue_error(AppError::OpenVpnLaunch("permission denied".into()));
 
         let error = manager.connect(profile_id.to_string()).await.unwrap_err();
@@ -1233,5 +1252,101 @@ mod tests {
             failed.last_error.as_ref().map(|error| error.code.as_str()),
             Some("openvpn_launch_failed")
         );
+    }
+
+    #[tokio::test]
+    async fn prompts_for_credentials_without_saved_username() {
+        let (manager, backend, profile_id, _, _) = build_manager(CredentialMode::UserPass, None);
+        let mut events = manager.subscribe();
+
+        manager.connect(profile_id.to_string()).await.unwrap();
+
+        assert_eq!(
+            manager.snapshot().state,
+            ConnectionState::AwaitingCredentials
+        );
+        assert_eq!(backend.request_count(), 0);
+
+        loop {
+            match events.recv().await.unwrap() {
+                CoreEvent::CredentialsRequested(prompt) => {
+                    assert_eq!(prompt.profile_id, profile_id);
+                    assert_eq!(prompt.saved_username, None);
+                    assert!(prompt.remember_supported);
+                    break;
+                }
+                CoreEvent::StateChanged(_) | CoreEvent::LogLine(_) | CoreEvent::DnsObserved(_) => {}
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn prompts_with_saved_username_and_does_not_autoconnect() {
+        let (manager, backend, profile_id, _, _) =
+            build_manager(CredentialMode::UserPass, Some("alice"));
+        let mut events = manager.subscribe();
+
+        manager.connect(profile_id.to_string()).await.unwrap();
+
+        assert_eq!(
+            manager.snapshot().state,
+            ConnectionState::AwaitingCredentials
+        );
+        assert_eq!(backend.request_count(), 0);
+
+        loop {
+            match events.recv().await.unwrap() {
+                CoreEvent::CredentialsRequested(prompt) => {
+                    assert_eq!(prompt.profile_id, profile_id);
+                    assert_eq!(prompt.saved_username.as_deref(), Some("alice"));
+                    assert!(prompt.remember_supported);
+                    break;
+                }
+                CoreEvent::StateChanged(_) | CoreEvent::LogLine(_) | CoreEvent::DnsObserved(_) => {}
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn remember_username_persists_only_the_username() {
+        let (manager, backend, profile_id, secret_store, repository) =
+            build_manager(CredentialMode::UserPass, None);
+        backend.queue_session(Some(71));
+
+        manager.connect(profile_id.to_string()).await.unwrap();
+        manager
+            .submit_credentials(CredentialSubmission {
+                profile_id: profile_id.clone(),
+                username: "alice".into(),
+                password: "secret".into(),
+                remember_in_keychain: true,
+            })
+            .await
+            .unwrap();
+
+        let stored = secret_store.get_password(&profile_id).unwrap().unwrap();
+        assert_eq!(stored.username, "alice");
+        assert!(*repository.saved_credentials.lock());
+    }
+
+    #[tokio::test]
+    async fn unchecked_remember_removes_saved_username() {
+        let (manager, backend, profile_id, secret_store, repository) =
+            build_manager(CredentialMode::UserPass, Some("alice"));
+        backend.queue_session(Some(72));
+
+        manager.connect(profile_id.to_string()).await.unwrap();
+        manager
+            .submit_credentials(CredentialSubmission {
+                profile_id: profile_id.clone(),
+                username: "bob".into(),
+                password: "secret".into(),
+                remember_in_keychain: false,
+            })
+            .await
+            .unwrap();
+
+        assert!(secret_store.get_password(&profile_id).unwrap().is_none());
+        assert!(!*repository.saved_credentials.lock());
     }
 }
