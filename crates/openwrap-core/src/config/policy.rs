@@ -16,6 +16,7 @@ pub fn classify_directive(name: &str, args: &[String]) -> DirectiveClassificatio
         "client"
         | "dev"
         | "proto"
+        | "tls-client"
         | "remote"
         | "remote-random"
         | "nobind"
@@ -28,6 +29,9 @@ pub fn classify_directive(name: &str, args: &[String]) -> DirectiveClassificatio
         | "data-ciphers"
         | "data-ciphers-fallback"
         | "auth"
+        | "explicit-exit-notify"
+        | "reneg-sec"
+        | "key-direction"
         | "ca"
         | "cert"
         | "key"
@@ -38,12 +42,21 @@ pub fn classify_directive(name: &str, args: &[String]) -> DirectiveClassificatio
         | "verb"
         | "mute"
         | "auth-nocache" => DirectiveClassification::Allowed,
-        "redirect-gateway" | "route-nopull" => DirectiveClassification::Warned,
+        "redirect-gateway" | "route-nopull" | "route" | "pull-filter" => {
+            DirectiveClassification::Warned
+        }
         "dhcp-option" => match args.first().map(|value| value.to_ascii_uppercase()) {
             Some(option) if option == "DNS" => DirectiveClassification::Warned,
             _ => DirectiveClassification::Blocked,
         },
-        "setenv" => DirectiveClassification::Blocked,
+        "setenv" => match (args.first(), args.get(1)) {
+            (Some(name), Some(value))
+                if name.eq_ignore_ascii_case("CLIENT_CERT") && value == "0" =>
+            {
+                DirectiveClassification::Allowed
+            }
+            _ => DirectiveClassification::Blocked,
+        },
         "script-security" => match args.first().and_then(|value| value.parse::<u8>().ok()) {
             Some(level) if level <= 1 => DirectiveClassification::Allowed,
             _ => DirectiveClassification::Blocked,
@@ -102,13 +115,44 @@ mod tests {
     #[test]
     fn classifies_known_directives() {
         assert_eq!(classify_directive("client", &[]), DirectiveClassification::Allowed);
+        assert_eq!(classify_directive("tls-client", &[]), DirectiveClassification::Allowed);
+        assert_eq!(
+            classify_directive("explicit-exit-notify", &[String::from("1")]),
+            DirectiveClassification::Allowed
+        );
+        assert_eq!(
+            classify_directive("reneg-sec", &[String::from("0")]),
+            DirectiveClassification::Allowed
+        );
+        assert_eq!(
+            classify_directive("key-direction", &[String::from("1")]),
+            DirectiveClassification::Allowed
+        );
         assert_eq!(
             classify_directive("redirect-gateway", &[]),
             DirectiveClassification::Warned
         );
         assert_eq!(
+            classify_directive("route", &[String::from("10.0.0.1"), String::from("255.255.255.255")]),
+            DirectiveClassification::Warned
+        );
+        assert_eq!(
+            classify_directive(
+                "pull-filter",
+                &[
+                    String::from("ignore"),
+                    String::from("redirect-gateway"),
+                ]
+            ),
+            DirectiveClassification::Warned
+        );
+        assert_eq!(
             classify_directive("dhcp-option", &[String::from("DNS"), String::from("1.1.1.1")]),
             DirectiveClassification::Warned
+        );
+        assert_eq!(
+            classify_directive("setenv", &[String::from("CLIENT_CERT"), String::from("0")]),
+            DirectiveClassification::Allowed
         );
         assert_eq!(classify_directive("plugin", &[]), DirectiveClassification::Blocked);
         assert_eq!(
@@ -117,6 +161,10 @@ mod tests {
         );
         assert_eq!(
             classify_directive("dhcp-option", &[String::from("DOMAIN"), String::from("corp.example")]),
+            DirectiveClassification::Blocked
+        );
+        assert_eq!(
+            classify_directive("setenv", &[String::from("FOO"), String::from("bar")]),
             DirectiveClassification::Blocked
         );
     }

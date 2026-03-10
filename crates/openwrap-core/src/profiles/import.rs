@@ -514,4 +514,78 @@ mod tests {
             .iter()
             .any(|error| error.contains("dhcp-option")));
     }
+
+    #[test]
+    fn bmw_profile_requires_approval_but_is_importable() {
+        let temp = TempDir::new().unwrap();
+        let source_dir = temp.path().join("source");
+        fs::create_dir_all(&source_dir).unwrap();
+        fs::write(
+            source_dir.join("bmw.ovpn"),
+            r#"dev tun
+persist-tun
+persist-key
+data-ciphers AES-256-CBC:AES-256-GCM:AES-256-CFB
+data-ciphers-fallback AES-256-CFB
+auth SHA256
+tls-client
+client
+resolv-retry infinite
+remote aws-b.ilia.digital 1197 udp4
+nobind
+auth-user-pass
+remote-cert-tls server
+explicit-exit-notify
+reneg-sec 0
+pull-filter ignore redirect-gateway
+dhcp-option DNS 10.0.1.50
+route 160.52.107.21 255.255.255.255
+setenv CLIENT_CERT 0
+key-direction 1
+<ca>
+certificate
+</ca>
+<tls-auth>
+static-key
+</tls-auth>
+"#,
+        )
+        .unwrap();
+
+        let paths = AppPaths::new(temp.path().join("app"));
+        paths.ensure().unwrap();
+        let repository = Arc::new(SqliteRepository::new(&paths.database_path).unwrap());
+        let importer = ProfileImporter::new(paths, repository);
+
+        let preview = importer
+            .import_profile(ImportProfileRequest {
+                source_path: source_dir.join("bmw.ovpn"),
+                display_name: None,
+                allow_warnings: false,
+            })
+            .unwrap();
+
+        assert!(preview.profile.is_none());
+        assert_eq!(preview.report.status, crate::profiles::ImportStatus::NeedsApproval);
+        assert!(preview.report.errors.is_empty());
+        assert_eq!(preview.report.warnings.len(), 3);
+
+        let imported = importer
+            .import_profile(ImportProfileRequest {
+                source_path: source_dir.join("bmw.ovpn"),
+                display_name: None,
+                allow_warnings: true,
+            })
+            .unwrap();
+
+        assert!(imported.profile.is_some());
+        assert_eq!(imported.report.status, crate::profiles::ImportStatus::Imported);
+        assert!(imported.report.errors.is_empty());
+
+        let profile = imported.profile.unwrap();
+        let stored = fs::read_to_string(&profile.profile.managed_ovpn_path).unwrap();
+        assert!(stored.contains("ca assets/ca.crt"));
+        assert!(stored.contains("tls-auth assets/tls-auth.key"));
+        assert!(stored.contains("auth-nocache"));
+    }
 }
