@@ -6,6 +6,7 @@ use crate::error::CommandError;
 use crate::events::PROFILES_IMPORT_COMPLETED;
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ImportProfileRequestDto {
     pub file_path: String,
     pub display_name: Option<String>,

@@ -9,7 +9,6 @@ use openwrap_core::storage::sqlite::SqliteRepository;
 use openwrap_core::{AppError, ProfileRepository};
 
 pub struct AppState {
-    pub paths: AppPaths,
     pub repository: Arc<SqliteRepository>,
     pub importer: Arc<ProfileImporter>,
     pub connection_manager: Arc<ConnectionManager>,
@@ -30,7 +29,6 @@ impl AppState {
         ));
 
         Ok(Self {
-            paths,
             repository,
             importer,
             connection_manager,
@@ -41,4 +39,3 @@ impl AppState {
         self.repository.clone()
     }
 }
-

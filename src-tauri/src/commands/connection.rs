@@ -4,6 +4,7 @@ use crate::app_state::AppState;
 use crate::error::CommandError;
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CredentialSubmissionDto {
     pub profile_id: String,
     pub username: String,

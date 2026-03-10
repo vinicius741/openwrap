@@ -7,6 +7,7 @@ use crate::app_state::AppState;
 use crate::error::CommandError;
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SettingsPatch {
     pub openvpn_path_override: Option<String>,
 }
