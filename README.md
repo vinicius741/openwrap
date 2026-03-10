@@ -21,4 +21,35 @@ Verification:
 - `cargo check -p openwrap-helper`
 - `npm run build --workspace ui`
 
+## Development Setup
+
+To run the OpenWrap application locally, you must compile the macOS helper wrapper and set the required root permissions in addition to starting the Tauri development server.
+
+1. **Build the OpenVPN privileged wrapper (helper):**
+   ```bash
+   cargo build -p openwrap-helper
+   ```
+
+2. **Allow the helper to execute with root privileges:**
+   ```bash
+   sudo chown root:wheel target/debug/openwrap-helper
+   sudo chmod 4755 target/debug/openwrap-helper
+   ```
+
+3. **Source the environment variables:**
+   ```bash
+   source .env
+   ```
+
+4. **Install the Tauri CLI (if not already installed):**
+   This project uses Tauri v2, so you'll need the v2 CLI via Cargo.
+   ```bash
+   cargo install tauri-cli --version "^2.0.0" --locked
+   ```
+
+5. **Start the Tauri development server:**
+   ```bash
+   npm run tauri:dev
+   ```
+
 See [docs/architecture.md](/Users/ilia/Documents/openwrap/docs/architecture.md), [docs/security-model.md](/Users/ilia/Documents/openwrap/docs/security-model.md), and [docs/helper-setup.md](/Users/ilia/Documents/openwrap/docs/helper-setup.md) for details.
