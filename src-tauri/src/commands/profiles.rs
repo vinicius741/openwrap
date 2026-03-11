@@ -94,7 +94,7 @@ pub fn set_last_selected_profile(
 }
 
 #[tauri::command]
-pub fn delete_profile(
+pub async fn delete_profile(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     profile_id: String,
@@ -103,19 +103,15 @@ pub fn delete_profile(
         profile_id.parse().map_err(|error: uuid::Error| {
             openwrap_core::AppError::ConnectionState(error.to_string())
         })?;
-    
+
     let profile = state
         .profile_repository()
         .get_profile(&raw_id)?;
 
-    tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(async {
-            state
-                .connection_manager
-                .disconnect_if_connected(&raw_id)
-                .await
-        })
-    })?;
+    state
+        .connection_manager
+        .disconnect_if_connected(&raw_id)
+        .await?;
 
     if let Err(e) = state.secret_store().delete_password(&raw_id) {
         eprintln!("Failed to delete stored password for profile {}: {}", raw_id, e);

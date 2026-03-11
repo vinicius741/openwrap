@@ -262,12 +262,20 @@ impl ProfileRepository for SqliteRepository {
     }
 
     fn set_last_selected_profile(&self, profile_id: Option<&ProfileId>) -> Result<(), AppError> {
-        let value = profile_id.map(|value| value.to_string());
-        self.connection.lock().execute(
-            "INSERT INTO settings (key, value) VALUES ('last_selected_profile', ?1)
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            params![value],
-        )?;
+        let connection = self.connection.lock();
+
+        if let Some(profile_id) = profile_id {
+            connection.execute(
+                "INSERT INTO settings (key, value) VALUES ('last_selected_profile', ?1)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                params![profile_id.to_string()],
+            )?;
+        } else {
+            connection.execute(
+                "DELETE FROM settings WHERE key = 'last_selected_profile'",
+                [],
+            )?;
+        }
         Ok(())
     }
 
@@ -386,4 +394,37 @@ fn map_finding(row: &Row<'_>) -> rusqlite::Result<ValidationFinding> {
             _ => ValidationAction::Allow,
         },
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use crate::profiles::ProfileId;
+    use crate::profiles::ProfileRepository;
+
+    use super::SqliteRepository;
+
+    #[test]
+    fn clearing_last_selected_profile_removes_the_setting_row() {
+        let db_path = std::env::temp_dir().join(format!(
+            "openwrap-sqlite-test-{}.db",
+            uuid::Uuid::new_v4()
+        ));
+        let repository = SqliteRepository::new(&db_path).unwrap();
+        let profile_id = ProfileId::new();
+
+        repository
+            .set_last_selected_profile(Some(&profile_id))
+            .unwrap();
+        assert_eq!(
+            repository.get_last_selected_profile().unwrap(),
+            Some(profile_id.clone())
+        );
+
+        repository.set_last_selected_profile(None).unwrap();
+        assert_eq!(repository.get_last_selected_profile().unwrap(), None);
+
+        fs::remove_file(db_path).unwrap();
+    }
 }
