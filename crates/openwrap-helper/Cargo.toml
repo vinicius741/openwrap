@@ -11,3 +11,6 @@ openwrap-core = { path = "../openwrap-core" }
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

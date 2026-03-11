@@ -638,6 +638,11 @@ input::placeholder {
   flex-wrap: wrap;
 }
 
+.error-banner-actions {
+  flex-direction: column;
+  align-items: stretch;
+}
+
 .error-path-label,
 .log-path-label {
   margin: 12px 0 6px;

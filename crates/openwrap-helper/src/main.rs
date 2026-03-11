@@ -120,10 +120,10 @@ fn validate_request(request: &ConnectRequest) -> Result<(), String> {
     let home_dir = real_user_home_dir()?;
     let base_dir = home_dir.join("Library/Application Support/OpenWrap");
     let profiles_dir = base_dir.join("profiles");
-    let runtime_dir = base_dir.join("runtime");
+    let runtime_root = base_dir.join("runtime");
 
-    validate_config_path(&request.config_path, &profiles_dir, &request.runtime_dir)?;
-    validate_scoped_path("runtime", &request.runtime_dir, &runtime_dir)?;
+    validate_config_path(&request.config_path, &profiles_dir, &runtime_root)?;
+    validate_scoped_path("runtime", &request.runtime_dir, &runtime_root)?;
     if let Some(auth_file) = &request.auth_file {
         validate_scoped_path("auth file", auth_file, &request.runtime_dir)?;
     }
@@ -134,9 +134,9 @@ fn validate_request(request: &ConnectRequest) -> Result<(), String> {
 fn validate_config_path(
     path: &Path,
     profiles_dir: &Path,
-    runtime_dir: &Path,
+    runtime_root: &Path,
 ) -> Result<(), String> {
-    validate_scoped_path("config", path, runtime_dir)
+    validate_scoped_path("config", path, runtime_root)
         .or_else(|_| validate_scoped_path("config", path, profiles_dir))
 }
 
@@ -260,4 +260,49 @@ async fn emit_event(
     writer.write_all(serialized.as_bytes()).await?;
     writer.write_all(b"\n").await?;
     writer.flush().await
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use tempfile::tempdir;
+
+    use super::validate_config_path;
+
+    #[test]
+    fn accepts_runtime_launch_configs_anywhere_under_runtime_root() {
+        let temp = tempdir().unwrap();
+        let base_dir = temp.path().join("OpenWrap");
+        let profiles_dir = base_dir.join("profiles");
+        let runtime_root = base_dir.join("runtime");
+        let stale_runtime_dir = runtime_root.join("profile-a").join("stale-session");
+        let active_runtime_dir = runtime_root.join("profile-a").join("active-session");
+        let config_path = active_runtime_dir.join("profile.ovpn");
+
+        fs::create_dir_all(&profiles_dir).unwrap();
+        fs::create_dir_all(&stale_runtime_dir).unwrap();
+        fs::create_dir_all(&active_runtime_dir).unwrap();
+        fs::write(&config_path, "client\n").unwrap();
+
+        assert!(validate_config_path(&config_path, &profiles_dir, &runtime_root).is_ok());
+    }
+
+    #[test]
+    fn rejects_configs_outside_managed_roots() {
+        let temp = tempdir().unwrap();
+        let base_dir = temp.path().join("OpenWrap");
+        let profiles_dir = base_dir.join("profiles");
+        let runtime_root = base_dir.join("runtime");
+        let external_dir = temp.path().join("external");
+        let config_path = external_dir.join("profile.ovpn");
+
+        fs::create_dir_all(&profiles_dir).unwrap();
+        fs::create_dir_all(&runtime_root).unwrap();
+        fs::create_dir_all(&external_dir).unwrap();
+        fs::write(&config_path, "client\n").unwrap();
+
+        let error = validate_config_path(&config_path, &profiles_dir, &runtime_root).unwrap_err();
+        assert!(error.contains("config path escapes the OpenWrap managed directory"));
+    }
 }
