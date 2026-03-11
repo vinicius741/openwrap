@@ -75,7 +75,7 @@ export interface ImportProfileResponse {
 export interface DnsObservation {
   config_requested: string[]
   runtime_pushed: string[]
-  effective_mode: 'ObserveOnly'
+  effective_mode: 'ObserveOnly' | 'SystemResolvers'
   warnings: string[]
 }
 

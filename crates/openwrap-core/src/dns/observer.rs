@@ -1,4 +1,4 @@
-use crate::dns::model::DnsObservation;
+use crate::dns::model::{DnsEffectiveMode, DnsObservation};
 
 pub trait DnsObserver: Send + Sync {
     fn from_profile(&self, directives: &[String]) -> DnsObservation;
@@ -15,14 +15,21 @@ impl DnsObserver for PassiveDnsObserver {
                 .iter()
                 .filter_map(|directive| normalize_dns_directive(directive))
                 .collect(),
+            effective_mode: default_effective_mode(),
             ..Default::default()
         };
 
         if !observation.config_requested.is_empty() {
-            observation.warnings.push(
-                "OpenWrap does not apply DNS settings yet; any DNS shown here is inferred from OpenVPN runtime logs."
-                    .into(),
-            );
+            observation.warnings.push(match observation.effective_mode {
+                DnsEffectiveMode::ObserveOnly => {
+                    "OpenWrap does not apply DNS settings yet; any DNS shown here is inferred from OpenVPN runtime logs."
+                        .into()
+                }
+                DnsEffectiveMode::SystemResolvers => {
+                    "OpenWrap applies DNS servers that OpenVPN exposes at runtime on macOS and restores the previous resolver settings on disconnect."
+                        .into()
+                }
+            });
         }
 
         observation
@@ -54,6 +61,16 @@ impl DnsObserver for PassiveDnsObserver {
 
         changed
     }
+}
+
+#[cfg(target_os = "macos")]
+fn default_effective_mode() -> DnsEffectiveMode {
+    DnsEffectiveMode::SystemResolvers
+}
+
+#[cfg(not(target_os = "macos"))]
+fn default_effective_mode() -> DnsEffectiveMode {
+    DnsEffectiveMode::ObserveOnly
 }
 
 fn normalize_dns_directive(value: &str) -> Option<String> {
@@ -123,5 +140,14 @@ mod tests {
         );
         assert!(observer.update_from_log(&mut observation, "PUSH_REPLY,route-gateway 10.0.0.1"));
         assert_eq!(observation.warnings.len(), 1);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn reports_system_resolver_mode_on_macos() {
+        let observer = PassiveDnsObserver;
+        let observation = observer.from_profile(&["DNS 10.0.1.50".into()]);
+
+        assert_eq!(observation.effective_mode, crate::dns::DnsEffectiveMode::SystemResolvers);
     }
 }

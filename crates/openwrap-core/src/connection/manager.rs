@@ -58,6 +58,7 @@ struct ActiveSession {
     generation: u64,
     runtime_dir: PathBuf,
     auth_file: Option<PathBuf>,
+    extra_cleanup_paths: Vec<PathBuf>,
 }
 
 struct ManagerState {
@@ -411,8 +412,8 @@ fn start_connect_attempt(
             return Err(error);
         }
     };
-    let launch_config_path = match write_launch_config(&plan.detail, &runtime_dir) {
-        Ok(path) => path,
+    let (launch_config_path, extra_cleanup_paths) = match write_launch_config(&plan.detail, &runtime_dir) {
+        Ok(paths) => paths,
         Err(error) => {
             cleanup_runtime_dir(&runtime_dir);
             set_terminal_error(&paths, &state, &events, &profile_id, &error);
@@ -455,6 +456,7 @@ fn start_connect_attempt(
             generation,
             runtime_dir,
             auth_file,
+            extra_cleanup_paths,
         };
         state.active_session = Some(active_session.clone());
         state.snapshot.state = transition(state.snapshot.state.clone(), ConnectionIntent::Spawned)?;
@@ -785,7 +787,10 @@ fn write_auth_file(
     }
 }
 
-fn write_launch_config(detail: &ProfileDetail, runtime_dir: &Path) -> Result<PathBuf, AppError> {
+fn write_launch_config(
+    detail: &ProfileDetail,
+    runtime_dir: &Path,
+) -> Result<(PathBuf, Vec<PathBuf>), AppError> {
     let source = fs::read_to_string(&detail.profile.managed_ovpn_path)?;
     let parsed = parse_profile(&source, &detail.profile.managed_dir)?;
     let rewritten_assets = detail
@@ -798,26 +803,31 @@ fn write_launch_config(detail: &ProfileDetail, runtime_dir: &Path) -> Result<Pat
             )
         })
         .collect::<HashMap<_, _>>();
+    let mut launch_config = rewrite_profile(&parsed, &rewritten_assets);
+    #[cfg(target_os = "macos")]
+    let extra_cleanup_paths =
+        crate::dns::append_macos_launch_dns_config(&mut launch_config, runtime_dir)?;
+
+    #[cfg(not(target_os = "macos"))]
+    let extra_cleanup_paths = Vec::new();
 
     let launch_config_path = runtime_dir.join(LAUNCH_CONFIG_FILE_NAME);
-    fs::write(
-        &launch_config_path,
-        rewrite_profile(&parsed, &rewritten_assets),
-    )?;
-    Ok(launch_config_path)
+    fs::write(&launch_config_path, launch_config)?;
+    Ok((launch_config_path, extra_cleanup_paths))
 }
 
 fn quote_openvpn_arg(path: &Path) -> String {
-    let escaped = path
-        .to_string_lossy()
+    path.to_string_lossy()
         .replace('\\', "\\\\")
-        .replace('"', "\\\"");
-    format!("\"{escaped}\"")
+        .replace(' ', "\\ ")
 }
 
 fn cleanup_runtime_artifacts(active_session: &ActiveSession) {
     if let Some(auth_file) = &active_session.auth_file {
         let _ = fs::remove_file(auth_file);
+    }
+    for path in &active_session.extra_cleanup_paths {
+        let _ = fs::remove_dir_all(path);
     }
     cleanup_runtime_dir(&active_session.runtime_dir);
 }
@@ -1305,7 +1315,10 @@ mod tests {
         let request = backend.last_request().unwrap();
         let launch_config = fs::read_to_string(&request.config_path).unwrap();
         assert!(request.config_path.starts_with(&request.runtime_dir));
-        assert!(launch_config.contains(&format!("tls-auth \"{}\" 1", asset_path.display())));
+        assert!(launch_config.contains(&format!(
+            "tls-auth {} 1",
+            asset_path.display().to_string().replace(' ', "\\ ")
+        )));
 
         session.tx.send(BackendEvent::Exited(Some(0))).unwrap();
     }
