@@ -6,12 +6,13 @@ use openwrap_core::openvpn::{DirectOpenVpnBackend, HelperOpenVpnBackend};
 use openwrap_core::profiles::ProfileImporter;
 use openwrap_core::secrets::KeychainSecretStore;
 use openwrap_core::storage::sqlite::SqliteRepository;
-use openwrap_core::{AppError, ProfileRepository, VpnBackend};
+use openwrap_core::{AppError, ProfileRepository, SecretStore, VpnBackend};
 
 pub struct AppState {
     pub repository: Arc<SqliteRepository>,
     pub importer: Arc<ProfileImporter>,
     pub connection_manager: Arc<ConnectionManager>,
+    pub secret_store: Arc<KeychainSecretStore>,
 }
 
 impl AppState {
@@ -21,10 +22,11 @@ impl AppState {
 
         let repository = Arc::new(SqliteRepository::new(&paths.database_path)?);
         let importer = Arc::new(ProfileImporter::new(paths.clone(), repository.clone()));
+        let secret_store = Arc::new(KeychainSecretStore::new());
         let connection_manager = Arc::new(ConnectionManager::new(
             paths.clone(),
             repository.clone(),
-            Arc::new(KeychainSecretStore::new()),
+            secret_store.clone(),
             build_backend(),
         ));
 
@@ -32,11 +34,16 @@ impl AppState {
             repository,
             importer,
             connection_manager,
+            secret_store,
         })
     }
 
     pub fn profile_repository(&self) -> Arc<dyn ProfileRepository> {
         self.repository.clone()
+    }
+
+    pub fn secret_store(&self) -> Arc<dyn SecretStore> {
+        self.secret_store.clone()
     }
 }
 

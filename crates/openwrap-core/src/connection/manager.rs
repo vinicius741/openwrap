@@ -247,6 +247,20 @@ impl ConnectionManager {
         Ok(())
     }
 
+    pub async fn disconnect_if_connected(&self, profile_id: &ProfileId) -> Result<(), AppError> {
+        let is_connected = {
+            let state = self.state.lock();
+            state.snapshot.profile_id.as_ref() == Some(profile_id)
+                && state.snapshot.state != ConnectionState::Idle
+        };
+
+        if is_connected {
+            eprintln!("Disconnecting profile {} before deletion", profile_id);
+            self.disconnect().await?;
+        }
+        Ok(())
+    }
+
     async fn start_connect(
         &self,
         detail: ProfileDetail,
@@ -984,6 +998,10 @@ mod tests {
 
         fn get_last_selected_profile(&self) -> Result<Option<ProfileId>, AppError> {
             Ok(self.last_selected.lock().clone())
+        }
+
+        fn delete_profile(&self, _profile_id: &ProfileId) -> Result<(), AppError> {
+            Ok(())
         }
     }
 

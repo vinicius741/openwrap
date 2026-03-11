@@ -1,3 +1,5 @@
+use std::fs;
+
 use serde::Deserialize;
 use tauri::Emitter;
 
@@ -93,6 +95,7 @@ pub fn set_last_selected_profile(
 
 #[tauri::command]
 pub fn delete_profile(
+    app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     profile_id: String,
 ) -> Result<(), CommandError> {
@@ -101,9 +104,40 @@ pub fn delete_profile(
             openwrap_core::AppError::ConnectionState(error.to_string())
         })?;
     
-    // Attempt to delete from the repository
+    let profile = state
+        .profile_repository()
+        .get_profile(&raw_id)?;
+
+    tokio::task::block_in_place(|| {
+        tokio::runtime::Handle::current().block_on(async {
+            state
+                .connection_manager
+                .disconnect_if_connected(&raw_id)
+                .await
+        })
+    })?;
+
+    if let Err(e) = state.secret_store().delete_password(&raw_id) {
+        eprintln!("Failed to delete stored password for profile {}: {}", raw_id, e);
+    }
+
+    if let Some(last_selected) = state.profile_repository().get_last_selected_profile()? {
+        if last_selected == raw_id {
+            state
+                .profile_repository()
+                .set_last_selected_profile(None)?;
+        }
+    }
+
     state
         .profile_repository()
-        .delete_profile(&raw_id)
-        .map_err(Into::into)
+        .delete_profile(&raw_id)?;
+
+    if let Err(e) = fs::remove_dir_all(&profile.profile.managed_dir) {
+        eprintln!("Failed to remove managed directory for profile {}: {}", raw_id, e);
+    }
+
+    tray::sync_selected_profile(&app, None);
+
+    Ok(())
 }

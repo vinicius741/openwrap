@@ -1,3 +1,8 @@
+// Tray icon configuration uses macOS template icons (icon_as_template).
+// Title text is intentionally omitted as it's not standard for macOS tray icons
+// and the tooltip provides sufficient status information across all platforms.
+
+use tauri::include_image;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Manager};
@@ -34,6 +39,8 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
     });
 
     TrayIconBuilder::with_id(TRAY_ID)
+        .icon(include_image!("icons/32x32.png"))
+        .icon_as_template(true)
         .menu(&menu)
         .show_menu_on_left_click(true)
         .on_menu_event(|app, event| match event.id().as_ref() {
@@ -96,16 +103,6 @@ pub fn sync_selected_profile(app: &AppHandle, profile_id: Option<&ProfileId>) {
 
 fn apply_tray_state(app: &AppHandle, snapshot: &ConnectionSnapshot, target_name: Option<&str>) {
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
-        let title = match snapshot.state {
-            ConnectionState::Connected => Some("OpenWrap On"),
-            ConnectionState::Connecting | ConnectionState::Reconnecting => Some("OpenWrap ..."),
-            ConnectionState::Disconnecting => Some("OpenWrap Off"),
-            ConnectionState::AwaitingCredentials => Some("OpenWrap Auth"),
-            ConnectionState::Error => Some("OpenWrap Err"),
-            _ => None,
-        };
-        let _ = tray.set_title(title);
-
         let tooltip = match (snapshot.state.clone(), target_name) {
             (ConnectionState::Connected, Some(name)) => format!("Connected: {name}"),
             (ConnectionState::Connecting | ConnectionState::Reconnecting, Some(name)) => {
