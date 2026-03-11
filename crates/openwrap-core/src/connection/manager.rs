@@ -1,5 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -28,6 +29,7 @@ use crate::{ProfileRepository, SecretStore, VpnBackend};
 const MAX_LOG_ENTRIES: usize = 500;
 const AUTH_FILE_NAME: &str = "auth.txt";
 const LAUNCH_CONFIG_FILE_NAME: &str = "profile.ovpn";
+const FAILED_CONNECTION_LOG_NAME: &str = "last-failed-openvpn.log";
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
@@ -294,6 +296,7 @@ impl ConnectionManager {
         state.snapshot.state = transition(state.snapshot.state.clone(), intent)?;
         state.snapshot.profile_id = profile_id;
         state.snapshot.last_error = None;
+        state.snapshot.log_file_path = None;
         state.snapshot.substate = None;
         state.snapshot.pid = None;
         state.snapshot.started_at.get_or_insert_with(Utc::now);
@@ -351,10 +354,14 @@ fn start_connect_attempt(
         let mut state = state.lock();
         state.pending_credentials = None;
         state.reconnect_plan = Some(plan.clone());
+        if !is_retry {
+            state.logs.clear();
+        }
         state.snapshot.state = transition(state.snapshot.state.clone(), prepare_intent)?;
         state.snapshot.profile_id = Some(profile_id.clone());
         state.snapshot.substate = None;
         state.snapshot.pid = None;
+        state.snapshot.log_file_path = None;
         state.snapshot.last_error = None;
         state.snapshot.started_at.get_or_insert_with(Utc::now);
         if !is_retry {
@@ -370,7 +377,7 @@ fn start_connect_attempt(
     let settings = match repository.get_settings() {
         Ok(settings) => settings,
         Err(error) => {
-            set_terminal_error(&state, &events, &profile_id, &error);
+            set_terminal_error(&paths, &state, &events, &profile_id, &error);
             return Err(error);
         }
     };
@@ -379,7 +386,7 @@ fn start_connect_attempt(
         Some(path) => path,
         None => {
             let error = AppError::OpenVpnBinaryNotFound;
-            set_terminal_error(&state, &events, &profile_id, &error);
+            set_terminal_error(&paths, &state, &events, &profile_id, &error);
             return Err(error);
         }
     };
@@ -388,7 +395,7 @@ fn start_connect_attempt(
     let runtime_dir = match prepare_runtime_dir(&paths, &profile_id, &session_id) {
         Ok(runtime_dir) => runtime_dir,
         Err(error) => {
-            set_terminal_error(&state, &events, &profile_id, &error);
+            set_terminal_error(&paths, &state, &events, &profile_id, &error);
             return Err(error);
         }
     };
@@ -400,7 +407,7 @@ fn start_connect_attempt(
         Ok(auth_file) => auth_file,
         Err(error) => {
             cleanup_runtime_dir(&runtime_dir);
-            set_terminal_error(&state, &events, &profile_id, &error);
+            set_terminal_error(&paths, &state, &events, &profile_id, &error);
             return Err(error);
         }
     };
@@ -408,7 +415,7 @@ fn start_connect_attempt(
         Ok(path) => path,
         Err(error) => {
             cleanup_runtime_dir(&runtime_dir);
-            set_terminal_error(&state, &events, &profile_id, &error);
+            set_terminal_error(&paths, &state, &events, &profile_id, &error);
             return Err(error);
         }
     };
@@ -425,7 +432,7 @@ fn start_connect_attempt(
         Ok(spawned) => spawned,
         Err(error) => {
             cleanup_runtime_dir(&runtime_dir);
-            set_terminal_error(&state, &events, &profile_id, &error);
+            set_terminal_error(&paths, &state, &events, &profile_id, &error);
             return Err(error);
         }
     };
@@ -433,7 +440,7 @@ fn start_connect_attempt(
     if let Err(error) = repository.touch_last_used(&profile_id) {
         let _ = backend.disconnect(session_id);
         cleanup_runtime_dir(&runtime_dir);
-        set_terminal_error(&state, &events, &profile_id, &error);
+        set_terminal_error(&paths, &state, &events, &profile_id, &error);
         return Err(error);
     }
 
@@ -475,6 +482,7 @@ fn start_connect_attempt(
                     }
                 }
                 BackendEvent::Stdout(line) => handle_log(
+                    &paths,
                     &task_state,
                     &events,
                     &profile_id,
@@ -486,6 +494,7 @@ fn start_connect_attempt(
                     &line,
                 ),
                 BackendEvent::Stderr(line) => handle_log(
+                    &paths,
                     &task_state,
                     &events,
                     &profile_id,
@@ -497,7 +506,14 @@ fn start_connect_attempt(
                     &line,
                 ),
                 BackendEvent::Exited(code) => {
-                    match handle_exit(&task_state, &events, &profile_id, &active_session, code) {
+                    match handle_exit(
+                        &paths,
+                        &task_state,
+                        &events,
+                        &profile_id,
+                        &active_session,
+                        code,
+                    ) {
                         ExitAction::Stop => break,
                         ExitAction::Retry {
                             delay_seconds,
@@ -526,6 +542,7 @@ fn start_connect_attempt(
 }
 
 fn handle_log(
+    paths: &AppPaths,
     state: &Arc<Mutex<ManagerState>>,
     events: &broadcast::Sender<CoreEvent>,
     profile_id: &ProfileId,
@@ -555,19 +572,22 @@ fn handle_log(
             ParsedLogSignal::Connected => {
                 state.snapshot.state = ConnectionState::Connected;
                 state.snapshot.substate = None;
+                state.snapshot.log_file_path = None;
                 state.snapshot.last_error = None;
             }
             ParsedLogSignal::AuthFailed => {
-                state.snapshot.state = ConnectionState::Error;
-                state.snapshot.substate = None;
-                state.snapshot.last_error = Some(UserFacingError {
+                let error = UserFacingError {
                     code: "auth_failed".into(),
                     title: "Authentication failed".into(),
                     message: "OpenVPN reported an authentication failure.".into(),
                     suggested_fix: Some("Re-enter your username and password.".into()),
                     details_safe: None,
-                });
+                };
+                let log_file_path = persist_failed_connection_log(paths, &state.logs);
+                apply_terminal_error(&mut state.snapshot, log_file_path, profile_id, error);
+                state.pending_credentials = None;
                 state.reconnect_plan = None;
+                state.active_session = None;
                 disconnect_session = Some(active_session.session_id.clone());
             }
             ParsedLogSignal::RetryableFailure => {
@@ -605,6 +625,7 @@ enum ExitAction {
 }
 
 fn handle_exit(
+    paths: &AppPaths,
     state: &Arc<Mutex<ManagerState>>,
     events: &broadcast::Sender<CoreEvent>,
     profile_id: &ProfileId,
@@ -657,10 +678,11 @@ fn handle_exit(
         }
     }
 
-    state.snapshot.state = ConnectionState::Error;
-    state.snapshot.profile_id = Some(profile_id.clone());
-    state.snapshot.substate = None;
-    state.snapshot.last_error = Some(process_exit_error(code, state.logs.iter()));
+    let error = process_exit_error(code, &state.logs);
+    let log_file_path = persist_failed_connection_log(paths, &state.logs);
+    apply_terminal_error(&mut state.snapshot, log_file_path, profile_id, error);
+    state.pending_credentials = None;
+    state.reconnect_plan = None;
     let _ = events.send(CoreEvent::StateChanged(state.snapshot.clone()));
     ExitAction::Stop
 }
@@ -702,20 +724,23 @@ async fn schedule_retry(
 }
 
 fn set_terminal_error(
+    paths: &AppPaths,
     state: &Arc<Mutex<ManagerState>>,
     events: &broadcast::Sender<CoreEvent>,
     profile_id: &ProfileId,
     error: &AppError,
 ) {
     let mut state = state.lock();
+    let log_file_path = persist_failed_connection_log(paths, &state.logs);
+    apply_terminal_error(
+        &mut state.snapshot,
+        log_file_path,
+        profile_id,
+        UserFacingError::from(error),
+    );
     state.active_session = None;
     state.pending_credentials = None;
     state.reconnect_plan = None;
-    state.snapshot.state = ConnectionState::Error;
-    state.snapshot.profile_id = Some(profile_id.clone());
-    state.snapshot.pid = None;
-    state.snapshot.substate = None;
-    state.snapshot.last_error = Some(UserFacingError::from(error));
     let _ = events.send(CoreEvent::StateChanged(state.snapshot.clone()));
 }
 
@@ -839,10 +864,7 @@ fn tighten_dir_permissions(_path: &Path) -> Result<(), AppError> {
     Ok(())
 }
 
-fn process_exit_error<'a>(
-    code: Option<i32>,
-    logs: impl DoubleEndedIterator<Item = &'a LogEntry>,
-) -> UserFacingError {
+fn process_exit_error(code: Option<i32>, logs: &VecDeque<LogEntry>) -> UserFacingError {
     match code {
         Some(126) => UserFacingError {
             code: "process_permission_denied".into(),
@@ -860,27 +882,77 @@ fn process_exit_error<'a>(
             ),
             details_safe: None,
         },
-        _ => diagnose_exit_error(code, logs).unwrap_or_else(|| match code {
-            Some(code) => UserFacingError {
-                code: "process_exit".into(),
-                title: "Connection failed".into(),
-                message: format!("OpenVPN exited with status {code}."),
-                suggested_fix: Some(
-                    "Inspect the connection log for the underlying failure reason.".into(),
-                ),
-                details_safe: None,
-            },
-            None => UserFacingError {
-                code: "process_terminated".into(),
-                title: "Connection terminated".into(),
-                message: "OpenVPN terminated without reporting an exit status.".into(),
-                suggested_fix: Some(
-                    "Inspect the connection log for the underlying failure reason.".into(),
-                ),
-                details_safe: None,
-            },
+        _ => diagnose_exit_error(code, logs.iter()).unwrap_or_else(|| {
+            let has_logs = !logs.is_empty();
+            match code {
+                Some(code) => UserFacingError {
+                    code: "process_exit".into(),
+                    title: "Connection failed".into(),
+                    message: format!("OpenVPN exited with status {code}."),
+                    suggested_fix: has_logs
+                        .then_some("Use Show logs to inspect the last OpenVPN output.".into()),
+                    details_safe: None,
+                },
+                None => UserFacingError {
+                    code: "process_terminated".into(),
+                    title: "Connection terminated".into(),
+                    message: "OpenVPN terminated without reporting an exit status.".into(),
+                    suggested_fix: has_logs
+                        .then_some("Use Show logs to inspect the last OpenVPN output.".into()),
+                    details_safe: None,
+                },
+            }
         }),
     }
+}
+
+fn apply_terminal_error(
+    snapshot: &mut ConnectionSnapshot,
+    log_file_path: Option<String>,
+    profile_id: &ProfileId,
+    error: UserFacingError,
+) {
+    snapshot.state = ConnectionState::Error;
+    snapshot.profile_id = Some(profile_id.clone());
+    snapshot.pid = None;
+    snapshot.substate = None;
+    snapshot.log_file_path = log_file_path;
+    snapshot.last_error = Some(error);
+}
+
+fn persist_failed_connection_log(paths: &AppPaths, logs: &VecDeque<LogEntry>) -> Option<String> {
+    if logs.is_empty() {
+        return None;
+    }
+
+    if fs::create_dir_all(&paths.logs_dir).is_err() {
+        return None;
+    }
+
+    let path = paths.failed_connection_log_path();
+    debug_assert_eq!(
+        path.file_name().and_then(|name| name.to_str()),
+        Some(FAILED_CONNECTION_LOG_NAME)
+    );
+
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&path)
+        .ok()?;
+
+    for entry in logs {
+        let _ = writeln!(
+            file,
+            "{} [{}] {}",
+            entry.ts.to_rfc3339(),
+            entry.stream,
+            entry.message
+        );
+    }
+
+    Some(path.to_string_lossy().into_owned())
 }
 
 #[cfg(test)]
@@ -1318,6 +1390,56 @@ mod tests {
             .is_some_and(|detail| detail.contains("Cannot resolve host address")));
     }
 
+    #[tokio::test(start_paused = true)]
+    async fn terminal_failures_persist_a_sanitized_log_file() {
+        let (manager, backend, profile_id, _, _) = build_manager(CredentialMode::None, None);
+        let sessions = [
+            backend.queue_session(Some(25)),
+            backend.queue_session(Some(26)),
+            backend.queue_session(Some(27)),
+            backend.queue_session(Some(28)),
+        ];
+
+        manager.connect(profile_id.to_string()).await.unwrap();
+        let delays = [2_u64, 5, 10];
+
+        for (index, delay) in delays.into_iter().enumerate() {
+            sessions[index]
+                .tx
+                .send(BackendEvent::Exited(Some(78)))
+                .unwrap();
+            tokio::task::yield_now().await;
+            tokio::time::advance(Duration::from_secs(delay)).await;
+            tokio::task::yield_now().await;
+        }
+
+        sessions[3]
+            .tx
+            .send(BackendEvent::Stderr(
+                "Options error: PASSWORD verification failed".into(),
+            ))
+            .unwrap();
+        tokio::task::yield_now().await;
+        sessions[3].tx.send(BackendEvent::Exited(Some(78))).unwrap();
+        tokio::task::yield_now().await;
+
+        let failed = manager.snapshot();
+        let log_path = manager.paths.failed_connection_log_path();
+        let saved_path = failed
+            .log_file_path
+            .as_deref()
+            .expect("expected persisted log path");
+        let saved_log = fs::read_to_string(&log_path).unwrap();
+
+        assert_eq!(saved_path, log_path.to_string_lossy());
+        assert!(saved_log.contains("[redacted] verification failed"));
+        assert!(!saved_log.contains("PASSWORD verification failed"));
+        assert_eq!(
+            failed.last_error.as_ref().map(|error| error.code.as_str()),
+            Some("openvpn_options_error")
+        );
+    }
+
     #[tokio::test]
     async fn cleans_runtime_artifacts_for_credentials_and_disconnect() {
         let (manager, backend, profile_id, _, _) = build_manager(CredentialMode::UserPass, None);
@@ -1382,6 +1504,32 @@ mod tests {
         );
     }
 
+    #[tokio::test(start_paused = true)]
+    async fn auth_failures_persist_the_latest_failed_log() {
+        let (manager, backend, profile_id, _, _) = build_manager(CredentialMode::None, None);
+        let session = backend.queue_session(Some(62));
+
+        manager.connect(profile_id.to_string()).await.unwrap();
+        session
+            .tx
+            .send(BackendEvent::Stderr("AUTH_FAILED: bad credentials".into()))
+            .unwrap();
+        tokio::task::yield_now().await;
+        session.tx.send(BackendEvent::Exited(Some(1))).unwrap();
+        tokio::task::yield_now().await;
+
+        let failed = manager.snapshot();
+        let log_path = manager.paths.failed_connection_log_path();
+        let expected_path = log_path.to_string_lossy().into_owned();
+        assert_eq!(
+            failed.log_file_path.as_deref(),
+            Some(expected_path.as_str())
+        );
+        assert!(fs::read_to_string(log_path)
+            .unwrap()
+            .contains("AUTH_FAILED: bad credentials"));
+    }
+
     #[tokio::test]
     async fn launch_failures_surface_as_terminal_errors() {
         let (manager, backend, profile_id, _, _) = build_manager(CredentialMode::None, None);
@@ -1396,6 +1544,39 @@ mod tests {
             failed.last_error.as_ref().map(|error| error.code.as_str()),
             Some("openvpn_launch_failed")
         );
+        assert_eq!(failed.log_file_path, None);
+        assert!(failed
+            .last_error
+            .as_ref()
+            .and_then(|error| error.suggested_fix.as_deref())
+            .is_some_and(|fix| !fix.contains("Show logs")));
+    }
+
+    #[tokio::test]
+    async fn new_connection_attempts_clear_the_previous_log_file_path() {
+        let (manager, backend, profile_id, _, _) = build_manager(CredentialMode::None, None);
+        let failed_session = backend.queue_session(Some(63));
+
+        manager.connect(profile_id.to_string()).await.unwrap();
+        failed_session
+            .tx
+            .send(BackendEvent::Stdout("AUTH_FAILED".into()))
+            .unwrap();
+        tokio::task::yield_now().await;
+        failed_session
+            .tx
+            .send(BackendEvent::Exited(Some(1)))
+            .unwrap();
+        tokio::task::yield_now().await;
+        assert!(manager.snapshot().log_file_path.is_some());
+
+        let next_session = backend.queue_session(Some(64));
+        let snapshot = manager.connect(profile_id.to_string()).await.unwrap();
+
+        assert_eq!(snapshot.log_file_path, None);
+        assert_eq!(manager.snapshot().log_file_path, None);
+
+        next_session.tx.send(BackendEvent::Exited(Some(0))).unwrap();
     }
 
     #[tokio::test]

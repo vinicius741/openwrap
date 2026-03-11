@@ -95,6 +95,7 @@ export interface ConnectionSnapshot {
   pid: number | null
   retry_count: number
   dns_observation: DnsObservation
+  log_file_path: string | null
   last_error: UserFacingError | null
 }
 

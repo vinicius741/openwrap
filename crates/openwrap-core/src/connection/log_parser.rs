@@ -181,7 +181,7 @@ pub fn diagnose_exit_error<'a>(
             title: "Connection failed".into(),
             message: exit_message(code, "OpenVPN exited after reporting a connection error."),
             suggested_fix: Some(
-                "Review the OpenVPN detail below and then inspect the full connection log if needed."
+                "Review the OpenVPN detail below, then use Show logs to inspect the last OpenVPN output."
                     .into(),
             ),
             details_safe,

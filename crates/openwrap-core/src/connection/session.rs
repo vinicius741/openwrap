@@ -53,6 +53,7 @@ pub struct ConnectionSnapshot {
     pub pid: Option<u32>,
     pub retry_count: u8,
     pub dns_observation: DnsObservation,
+    pub log_file_path: Option<String>,
     pub last_error: Option<UserFacingError>,
 }
 
@@ -66,6 +67,7 @@ impl Default for ConnectionSnapshot {
             pid: None,
             retry_count: 0,
             dns_observation: DnsObservation::default(),
+            log_file_path: None,
             last_error: None,
         }
     }

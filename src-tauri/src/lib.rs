@@ -61,6 +61,7 @@ pub fn run() {
             commands::connection::disconnect,
             commands::connection::get_connection_state,
             commands::connection::get_recent_logs,
+            commands::connection::reveal_connection_log_in_finder,
             commands::settings::get_settings,
             commands::settings::update_settings,
             commands::settings::detect_openvpn,

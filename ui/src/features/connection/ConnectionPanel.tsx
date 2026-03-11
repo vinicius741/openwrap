@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 
 import { StatusBadge } from '../../components/StatusBadge'
+import { normalizeCommandError } from '../../lib/tauri'
+import { revealConnectionLogInFinder } from '../logs/api'
 import { useAppStore } from '../../store/appStore'
 
 export function ConnectionPanel() {
@@ -10,6 +12,7 @@ export function ConnectionPanel() {
   const connectSelected = useAppStore((state) => state.connectSelected)
   const disconnect = useAppStore((state) => state.disconnect)
   const submit = useAppStore((state) => state.submitCredentials)
+  const setError = useAppStore((state) => state.setError)
 
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -30,6 +33,21 @@ export function ConnectionPanel() {
     connection?.state === 'connecting' ||
     connection?.state === 'reconnecting' ||
     connection?.state === 'awaiting_credentials'
+
+  const handleShowLogs = () => {
+    document.getElementById('connection-logs')?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start',
+    })
+  }
+
+  const handleRevealLog = async () => {
+    try {
+      await revealConnectionLogInFinder()
+    } catch (error) {
+      setError(normalizeCommandError(error))
+    }
+  }
 
   return (
     <section className="connection-panel">
@@ -76,14 +94,36 @@ export function ConnectionPanel() {
 
       {connection?.last_error ? (
         <div className="error-banner">
-          <strong>{connection.last_error.title}</strong>
-          <p>{connection.last_error.message}</p>
-          {connection.last_error.details_safe ? (
-            <p className="error-detail">
-              <span>OpenVPN reported:</span> {connection.last_error.details_safe}
-            </p>
-          ) : null}
-          {connection.last_error.suggested_fix ? <p>{connection.last_error.suggested_fix}</p> : null}
+          <div className="error-banner-copy">
+            <strong>{connection.last_error.title}</strong>
+            <p>{connection.last_error.message}</p>
+            {connection.last_error.details_safe ? (
+              <p className="error-detail">
+                <span>OpenVPN reported:</span> {connection.last_error.details_safe}
+              </p>
+            ) : null}
+            {connection.last_error.suggested_fix ? <p>{connection.last_error.suggested_fix}</p> : null}
+            {connection.log_file_path ? (
+              <>
+                <p className="error-path-label">Saved log file</p>
+                <p className="log-file-path">{connection.log_file_path}</p>
+              </>
+            ) : null}
+          </div>
+          <div className="error-banner-actions">
+            <button className="action-button action-secondary action-small" onClick={handleShowLogs} type="button">
+              Show logs
+            </button>
+            {connection.log_file_path ? (
+              <button
+                className="action-button action-secondary action-small"
+                onClick={() => void handleRevealLog()}
+                type="button"
+              >
+                Reveal log file
+              </button>
+            ) : null}
+          </div>
         </div>
       ) : null}
 

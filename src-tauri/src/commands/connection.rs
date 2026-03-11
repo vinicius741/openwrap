@@ -1,3 +1,5 @@
+use std::process::Command;
+
 use serde::Deserialize;
 
 use crate::app_state::AppState;
@@ -68,4 +70,23 @@ pub fn get_recent_logs(
     limit: Option<usize>,
 ) -> Result<Vec<openwrap_core::connection::LogEntry>, CommandError> {
     Ok(state.connection_manager.recent_logs(limit.unwrap_or(200)))
+}
+
+#[tauri::command]
+pub fn reveal_connection_log_in_finder(
+    state: tauri::State<'_, AppState>,
+) -> Result<(), CommandError> {
+    let log_path = state.paths.failed_connection_log_path();
+    if !log_path.exists() {
+        return Err(CommandError::from(openwrap_core::AppError::Settings(
+            "No saved connection log is available yet.".into(),
+        )));
+    }
+
+    Command::new("/usr/bin/open")
+        .arg("-R")
+        .arg(log_path)
+        .status()
+        .map_err(|error| CommandError::from(openwrap_core::AppError::Io(error)))?;
+    Ok(())
 }

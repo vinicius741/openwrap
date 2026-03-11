@@ -13,6 +13,7 @@ pub struct AppState {
     pub importer: Arc<ProfileImporter>,
     pub connection_manager: Arc<ConnectionManager>,
     pub secret_store: Arc<KeychainSecretStore>,
+    pub paths: AppPaths,
 }
 
 impl AppState {
@@ -35,6 +36,7 @@ impl AppState {
             importer,
             connection_manager,
             secret_store,
+            paths,
         })
     }
 

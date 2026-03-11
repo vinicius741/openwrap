@@ -43,6 +43,7 @@ type AppStore = {
   setConnection: (snapshot: ConnectionSnapshot) => void
   setDnsObservation: (dnsObservation: ConnectionSnapshot['dns_observation']) => void
   appendLog: (entry: LogEntry) => void
+  clearLogs: () => void
   setCredentialPrompt: (prompt: CredentialPrompt | null) => void
   setDetection: (detection: OpenVpnDetection) => void
   setError: (error: UserFacingError | null) => void
@@ -211,6 +212,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }
 
     try {
+      get().clearLogs()
       const snapshot = await connectProfile(profileId)
       set({ connection: snapshot, error: null })
     } catch (error) {
@@ -270,7 +272,15 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }
   },
 
-  setConnection: (connection) => set({ connection, error: null }),
+  setConnection: (connection) =>
+    set((state) => ({
+      connection,
+      logs:
+        connection.state === 'validating_profile' && connection.retry_count === 0
+          ? []
+          : state.logs,
+      error: null,
+    })),
 
   setDnsObservation: (dnsObservation) =>
     set((state) => ({
@@ -286,6 +296,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set((state) => ({
       logs: [...state.logs.slice(-399), entry],
     })),
+
+  clearLogs: () => set({ logs: [] }),
 
   setCredentialPrompt: (pendingCredentialPrompt) => set({ pendingCredentialPrompt, error: null }),
 
