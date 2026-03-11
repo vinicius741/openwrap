@@ -17,6 +17,11 @@ pub struct ConnectRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReconcileDnsRequest {
+    pub runtime_root: PathBuf,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum BackendEvent {
     Started(Option<u32>),
     Stdout(String),

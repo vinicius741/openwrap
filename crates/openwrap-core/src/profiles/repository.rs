@@ -1,3 +1,4 @@
+use crate::dns::DnsPolicy;
 use crate::errors::AppError;
 use crate::profiles::model::{
     ProfileDetail, ProfileId, ProfileImportResult, ProfileSummary, ValidationFinding,
@@ -19,6 +20,11 @@ pub trait ProfileRepository: Send + Sync {
         &self,
         profile_id: &ProfileId,
     ) -> Result<Vec<ValidationFinding>, AppError>;
+    fn update_profile_dns_policy(
+        &self,
+        profile_id: &ProfileId,
+        policy: DnsPolicy,
+    ) -> Result<ProfileDetail, AppError>;
     fn set_last_selected_profile(&self, profile_id: Option<&ProfileId>) -> Result<(), AppError>;
     fn get_last_selected_profile(&self) -> Result<Option<ProfileId>, AppError>;
     fn delete_profile(&self, profile_id: &ProfileId) -> Result<(), AppError>;

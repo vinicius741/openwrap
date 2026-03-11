@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::dns::DnsObservation;
+use crate::dns::{DnsObservation, DnsPolicy};
 use crate::errors::UserFacingError;
 
 macro_rules! uuid_newtype {
@@ -188,6 +188,7 @@ pub struct Profile {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub dns_intent: Vec<String>,
+    pub dns_policy: DnsPolicy,
     pub credential_mode: CredentialMode,
     pub remote_summary: String,
     pub has_saved_credentials: bool,

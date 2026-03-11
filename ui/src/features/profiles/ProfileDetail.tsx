@@ -16,11 +16,23 @@ function TrashIcon() {
   )
 }
 
+function isDnsPolicy(
+  value: string,
+): value is 'SplitDnsPreferred' | 'FullOverride' | 'ObserveOnly' {
+  return (
+    value === 'SplitDnsPreferred' ||
+    value === 'FullOverride' ||
+    value === 'ObserveOnly'
+  )
+}
+
 export function ProfileDetail() {
   const profile = useAppStore((state) => state.selectedProfile)
   const deleteProfile = useAppStore((state) => state.deleteProfile)
+  const updateSelectedProfileDnsPolicy = useAppStore((state) => state.updateSelectedProfileDnsPolicy)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [isUpdatingPolicy, setIsUpdatingPolicy] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const closeModal = useCallback(() => {
@@ -52,6 +64,15 @@ export function ProfileDetail() {
       setDeleteError(error instanceof Error ? error.message : 'Failed to delete profile')
     } finally {
       setIsDeleting(false)
+    }
+  }
+
+  const handleDnsPolicyChange = async (dnsPolicy: 'SplitDnsPreferred' | 'FullOverride' | 'ObserveOnly') => {
+    setIsUpdatingPolicy(true)
+    try {
+      await updateSelectedProfileDnsPolicy(dnsPolicy)
+    } finally {
+      setIsUpdatingPolicy(false)
     }
   }
 
@@ -112,6 +133,27 @@ export function ProfileDetail() {
       <ConnectionPanel />
       <section className="detail-grid">
         <article className="detail-card">
+          <h3>DNS policy</h3>
+          <label style={{ display: 'grid', gap: '8px' }}>
+            <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
+              Choose how this profile applies VPN DNS on macOS.
+            </span>
+            <select
+              value={profile.profile.dns_policy}
+              disabled={isUpdatingPolicy}
+              onChange={(event) => {
+                if (isDnsPolicy(event.target.value)) {
+                  void handleDnsPolicyChange(event.target.value)
+                }
+              }}
+            >
+              <option value="SplitDnsPreferred">Split DNS preferred</option>
+              <option value="FullOverride">Full override</option>
+              <option value="ObserveOnly">Observe only</option>
+            </select>
+          </label>
+        </article>
+        <article className="detail-card">
           <h3>Validation</h3>
           <ul className="finding-list">
             {profile.findings.length ? (
@@ -141,4 +183,3 @@ export function ProfileDetail() {
     </div>
   )
 }
-

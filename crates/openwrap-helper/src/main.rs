@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use openwrap_core::openvpn::config_working_dir;
 use openwrap_core::openvpn::helper_protocol::HelperEvent;
-use openwrap_core::openvpn::ConnectRequest;
+use openwrap_core::openvpn::{ConnectRequest, ReconcileDnsRequest};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
 use tokio::process::Command;
 use tokio::signal::unix::{signal, SignalKind};
@@ -19,8 +19,9 @@ use tokio::sync::Mutex;
 async fn main() {
     let exit_code = match std::env::args().nth(1).as_deref() {
         Some("connect") => run_connect().await,
+        Some("reconcile-dns") => run_reconcile_dns(),
         _ => {
-            eprintln!("usage: openwrap-helper connect");
+            eprintln!("usage: openwrap-helper connect|reconcile-dns");
             64
         }
     };
@@ -109,6 +110,13 @@ async fn run_connect() -> i32 {
 }
 
 fn read_request() -> Result<ConnectRequest, String> {
+    read_json_request()
+}
+
+fn read_json_request<T>() -> Result<T, String>
+where
+    T: for<'de> serde::Deserialize<'de>,
+{
     let mut raw = String::new();
     io::stdin()
         .read_to_string(&mut raw)
@@ -118,7 +126,7 @@ fn read_request() -> Result<ConnectRequest, String> {
 
 fn validate_request(request: &ConnectRequest) -> Result<(), String> {
     let home_dir = real_user_home_dir()?;
-    let base_dir = home_dir.join("Library/Application Support/OpenWrap");
+    let base_dir = openwrap_base_dir(&home_dir);
     let profiles_dir = base_dir.join("profiles");
     let runtime_root = base_dir.join("runtime");
 
@@ -131,6 +139,28 @@ fn validate_request(request: &ConnectRequest) -> Result<(), String> {
     Ok(())
 }
 
+fn run_reconcile_dns() -> i32 {
+    let request = match read_json_request::<ReconcileDnsRequest>() {
+        Ok(request) => request,
+        Err(error) => {
+            eprintln!("{error}");
+            return 64;
+        }
+    };
+
+    if let Err(error) = validate_runtime_root(&request.runtime_root) {
+        eprintln!("{error}");
+        return 78;
+    }
+
+    if let Err(error) = reconcile_dns_state(&request.runtime_root) {
+        eprintln!("{error}");
+        return 70;
+    }
+
+    0
+}
+
 fn validate_config_path(
     path: &Path,
     profiles_dir: &Path,
@@ -138,6 +168,12 @@ fn validate_config_path(
 ) -> Result<(), String> {
     validate_scoped_path("config", path, runtime_root)
         .or_else(|_| validate_scoped_path("config", path, profiles_dir))
+}
+
+fn validate_runtime_root(path: &Path) -> Result<(), String> {
+    let home_dir = real_user_home_dir()?;
+    let expected_root = openwrap_base_dir(&home_dir).join("runtime");
+    validate_scoped_path("runtime root", path, &expected_root)
 }
 
 fn validate_scoped_path(label: &str, path: &Path, root: &Path) -> Result<(), String> {
@@ -207,6 +243,133 @@ fn terminate_pid(pid: Option<u32>) {
             libc::kill(pid as i32, libc::SIGTERM);
         }
     }
+}
+
+fn openwrap_base_dir(home_dir: &Path) -> PathBuf {
+    home_dir.join("Library/Application Support/OpenWrap")
+}
+
+fn reconcile_dns_state(runtime_root: &Path) -> Result<(), String> {
+    let state_root = runtime_root.join("dns-state");
+    if !state_root.exists() {
+        return Ok(());
+    }
+
+    let entries = fs::read_dir(&state_root)
+        .map_err(|error| format!("failed to read DNS state directory: {error}"))?;
+    for entry in entries {
+        let entry = entry.map_err(|error| format!("failed to inspect DNS state entry: {error}"))?;
+        let profile_dir = entry.path();
+        if !profile_dir.is_dir() {
+            continue;
+        }
+
+        let profile_id = profile_dir
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default()
+            .to_string();
+
+        reconcile_global_override(&profile_dir.join("global.tsv"))?;
+        reconcile_scoped_resolvers(&profile_dir.join("scoped.tsv"), &profile_id)?;
+
+        if let Err(error) = fs::remove_dir(&profile_dir) {
+            eprintln!(
+                "warning: failed to remove DNS state directory {}: {error}",
+                profile_dir.display()
+            );
+        }
+    }
+
+    if let Err(error) = fs::remove_dir(&state_root) {
+        eprintln!(
+            "warning: failed to remove DNS state root {}: {error}",
+            state_root.display()
+        );
+    }
+    Ok(())
+}
+
+fn reconcile_global_override(state_file: &Path) -> Result<(), String> {
+    if !state_file.exists() {
+        return Ok(());
+    }
+
+    let contents = fs::read_to_string(state_file)
+        .map_err(|error| format!("failed to read DNS restore state: {error}"))?;
+    for line in contents.lines() {
+        let Some((service, current_dns)) = line.split_once('\t') else {
+            continue;
+        };
+        if service.is_empty() {
+            continue;
+        }
+
+        let status = if current_dns == "__EMPTY__" {
+            std::process::Command::new("/usr/sbin/networksetup")
+                .arg("-setdnsservers")
+                .arg(service)
+                .arg("Empty")
+                .status()
+        } else {
+            let mut command = std::process::Command::new("/usr/sbin/networksetup");
+            command.arg("-setdnsservers").arg(service);
+            for server in current_dns.split_whitespace() {
+                command.arg(server);
+            }
+            command.status()
+        };
+
+        let _ = status;
+    }
+
+    let _ = fs::remove_file(state_file);
+    flush_dns_cache();
+    Ok(())
+}
+
+fn reconcile_scoped_resolvers(state_file: &Path, profile_id: &str) -> Result<(), String> {
+    if !state_file.exists() {
+        return Ok(());
+    }
+
+    let contents = fs::read_to_string(state_file)
+        .map_err(|error| format!("failed to read scoped DNS state: {error}"))?;
+    let profile_marker = format!("# profile_id={profile_id}");
+    for line in contents.lines() {
+        let Some((_, resolver_path)) = line.split_once('\t') else {
+            continue;
+        };
+        let resolver_path = PathBuf::from(resolver_path);
+        if !resolver_path.exists() {
+            continue;
+        }
+
+        if is_openwrap_owned_resolver(&resolver_path, &profile_marker) {
+            let _ = fs::remove_file(&resolver_path);
+        }
+    }
+
+    let _ = fs::remove_file(state_file);
+    flush_dns_cache();
+    Ok(())
+}
+
+fn is_openwrap_owned_resolver(path: &Path, profile_marker: &str) -> bool {
+    let Ok(contents) = fs::read_to_string(path) else {
+        return false;
+    };
+    contents.contains("# OpenWrap managed DNS") && contents.contains(profile_marker)
+}
+
+fn flush_dns_cache() {
+    let _ = std::process::Command::new("/usr/bin/dscacheutil")
+        .arg("-flushcache")
+        .status();
+    let _ = std::process::Command::new("/usr/bin/killall")
+        .arg("-HUP")
+        .arg("mDNSResponder")
+        .status();
 }
 
 async fn recv_signal(

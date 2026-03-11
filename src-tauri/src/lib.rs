@@ -56,6 +56,7 @@ pub fn run() {
             commands::profiles::delete_profile,
             commands::profiles::get_last_selected_profile,
             commands::profiles::set_last_selected_profile,
+            commands::profiles::update_profile_dns_policy,
             commands::connection::connect,
             commands::connection::submit_credentials,
             commands::connection::disconnect,

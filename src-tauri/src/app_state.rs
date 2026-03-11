@@ -24,11 +24,18 @@ impl AppState {
         let repository = Arc::new(SqliteRepository::new(&paths.database_path)?);
         let importer = Arc::new(ProfileImporter::new(paths.clone(), repository.clone()));
         let secret_store = Arc::new(KeychainSecretStore::new());
+        let backend = build_backend();
+        #[cfg(target_os = "macos")]
+        if let Err(error) = backend.reconcile_dns(openwrap_core::openvpn::ReconcileDnsRequest {
+            runtime_root: paths.runtime_dir.clone(),
+        }) {
+            eprintln!("Failed to reconcile DNS state during startup: {error}");
+        }
         let connection_manager = Arc::new(ConnectionManager::new(
             paths.clone(),
             repository.clone(),
             secret_store.clone(),
-            build_backend(),
+            backend,
         ));
 
         Ok(Self {

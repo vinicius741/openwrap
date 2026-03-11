@@ -16,6 +16,13 @@ pub struct ImportProfileRequestDto {
     pub allow_warnings: bool,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateProfileDnsPolicyDto {
+    pub profile_id: String,
+    pub dns_policy: openwrap_core::dns::DnsPolicy,
+}
+
 #[tauri::command]
 pub fn import_profile(
     app: tauri::AppHandle,
@@ -104,9 +111,7 @@ pub async fn delete_profile(
             openwrap_core::AppError::ConnectionState(error.to_string())
         })?;
 
-    let profile = state
-        .profile_repository()
-        .get_profile(&raw_id)?;
+    let profile = state.profile_repository().get_profile(&raw_id)?;
 
     state
         .connection_manager
@@ -114,26 +119,46 @@ pub async fn delete_profile(
         .await?;
 
     if let Err(e) = state.secret_store().delete_password(&raw_id) {
-        eprintln!("Failed to delete stored password for profile {}: {}", raw_id, e);
+        eprintln!(
+            "Failed to delete stored password for profile {}: {}",
+            raw_id, e
+        );
     }
 
     if let Some(last_selected) = state.profile_repository().get_last_selected_profile()? {
         if last_selected == raw_id {
-            state
-                .profile_repository()
-                .set_last_selected_profile(None)?;
+            state.profile_repository().set_last_selected_profile(None)?;
         }
     }
 
-    state
-        .profile_repository()
-        .delete_profile(&raw_id)?;
+    state.profile_repository().delete_profile(&raw_id)?;
 
     if let Err(e) = fs::remove_dir_all(&profile.profile.managed_dir) {
-        eprintln!("Failed to remove managed directory for profile {}: {}", raw_id, e);
+        eprintln!(
+            "Failed to remove managed directory for profile {}: {}",
+            raw_id, e
+        );
     }
 
     tray::sync_selected_profile(&app, None);
 
     Ok(())
+}
+
+#[tauri::command]
+pub fn update_profile_dns_policy(
+    state: tauri::State<'_, AppState>,
+    request: UpdateProfileDnsPolicyDto,
+) -> Result<openwrap_core::profiles::ProfileDetail, CommandError> {
+    let profile_id = request
+        .profile_id
+        .parse::<openwrap_core::profiles::ProfileId>()
+        .map_err(|error: uuid::Error| {
+            openwrap_core::AppError::ConnectionState(error.to_string())
+        })?;
+
+    state
+        .profile_repository()
+        .update_profile_dns_policy(&profile_id, request.dns_policy)
+        .map_err(Into::into)
 }

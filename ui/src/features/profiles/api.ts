@@ -38,3 +38,15 @@ export async function getLastSelectedProfile() {
 export async function setLastSelectedProfile(profileId: string | null) {
   return invokeCommand<void>('set_last_selected_profile', { profileId })
 }
+
+export async function updateProfileDnsPolicy(
+  profileId: string,
+  dnsPolicy: 'SplitDnsPreferred' | 'FullOverride' | 'ObserveOnly',
+) {
+  return invokeCommand<ProfileDetail>('update_profile_dns_policy', {
+    request: {
+      profileId,
+      dnsPolicy,
+    },
+  })
+}

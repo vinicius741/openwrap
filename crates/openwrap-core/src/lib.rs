@@ -33,4 +33,11 @@ pub trait VpnBackend: Send + Sync {
     ) -> Result<openvpn::SpawnedSession, errors::AppError>;
 
     fn disconnect(&self, session_id: connection::SessionId) -> Result<(), errors::AppError>;
+
+    fn reconcile_dns(
+        &self,
+        _request: openvpn::ReconcileDnsRequest,
+    ) -> Result<(), errors::AppError> {
+        Ok(())
+    }
 }

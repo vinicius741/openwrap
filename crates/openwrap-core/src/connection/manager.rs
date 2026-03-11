@@ -217,8 +217,8 @@ impl ConnectionManager {
                 self.snapshot().profile_id.clone(),
             )?;
             self.clear_pending_connect_state();
+            cleanup_auth_file(&session);
             self.backend.disconnect(session.session_id.clone())?;
-            cleanup_runtime_artifacts(&session);
             return Ok(self.snapshot());
         }
 
@@ -242,8 +242,8 @@ impl ConnectionManager {
         };
 
         if let Some(session) = session {
+            cleanup_auth_file(&session);
             let _ = self.backend.disconnect(session.session_id.clone());
-            cleanup_runtime_artifacts(&session);
         }
 
         self.finish_disconnect();
@@ -368,7 +368,10 @@ fn start_connect_attempt(
         if !is_retry {
             state.snapshot.retry_count = 0;
         }
-        state.snapshot.dns_observation = dns_observer.from_profile(&plan.detail.profile.dns_intent);
+        state.snapshot.dns_observation = dns_observer.from_profile(
+            &plan.detail.profile.dns_intent,
+            plan.detail.profile.dns_policy.clone(),
+        );
         let _ = events.send(CoreEvent::StateChanged(state.snapshot.clone()));
         let _ = events.send(CoreEvent::DnsObserved(
             state.snapshot.dns_observation.clone(),
@@ -412,14 +415,15 @@ fn start_connect_attempt(
             return Err(error);
         }
     };
-    let (launch_config_path, extra_cleanup_paths) = match write_launch_config(&plan.detail, &runtime_dir) {
-        Ok(paths) => paths,
-        Err(error) => {
-            cleanup_runtime_dir(&runtime_dir);
-            set_terminal_error(&paths, &state, &events, &profile_id, &error);
-            return Err(error);
-        }
-    };
+    let (launch_config_path, extra_cleanup_paths) =
+        match write_launch_config(&plan.detail, &runtime_dir) {
+            Ok(paths) => paths,
+            Err(error) => {
+                cleanup_runtime_dir(&runtime_dir);
+                set_terminal_error(&paths, &state, &events, &profile_id, &error);
+                return Err(error);
+            }
+        };
     let request = ConnectRequest {
         session_id: session_id.clone(),
         profile_id: profile_id.clone(),
@@ -446,7 +450,10 @@ fn start_connect_attempt(
     }
 
     let mut event_rx = spawned.event_rx;
-    let observation = dns_observer.from_profile(&plan.detail.profile.dns_intent);
+    let observation = dns_observer.from_profile(
+        &plan.detail.profile.dns_intent,
+        plan.detail.profile.dns_policy.clone(),
+    );
     let active_session = {
         let mut state = state.lock();
         state.next_generation += 1;
@@ -805,8 +812,12 @@ fn write_launch_config(
         .collect::<HashMap<_, _>>();
     let mut launch_config = rewrite_profile(&parsed, &rewritten_assets);
     #[cfg(target_os = "macos")]
-    let extra_cleanup_paths =
-        crate::dns::append_macos_launch_dns_config(&mut launch_config, runtime_dir)?;
+    let extra_cleanup_paths = crate::dns::append_macos_launch_dns_config(
+        &mut launch_config,
+        runtime_dir,
+        &detail.profile.id,
+        &detail.profile.dns_policy,
+    )?;
 
     #[cfg(not(target_os = "macos"))]
     let extra_cleanup_paths = Vec::new();
@@ -823,9 +834,17 @@ fn quote_openvpn_arg(path: &Path) -> String {
 }
 
 fn cleanup_runtime_artifacts(active_session: &ActiveSession) {
+    cleanup_auth_file(active_session);
+    cleanup_runtime_bridge(active_session);
+}
+
+fn cleanup_auth_file(active_session: &ActiveSession) {
     if let Some(auth_file) = &active_session.auth_file {
         let _ = fs::remove_file(auth_file);
     }
+}
+
+fn cleanup_runtime_bridge(active_session: &ActiveSession) {
     for path in &active_session.extra_cleanup_paths {
         let _ = fs::remove_dir_all(path);
     }
@@ -980,6 +999,7 @@ mod tests {
     use super::{ConnectionManager, CoreEvent};
     use crate::app_state::AppPaths;
     use crate::connection::{ConnectionState, CredentialSubmission, SessionId};
+    use crate::dns::DnsPolicy;
     use crate::errors::AppError;
     use crate::openvpn::{BackendEvent, ConnectRequest, SpawnedSession};
     use crate::profiles::repository::ProfileRepository;
@@ -1068,6 +1088,14 @@ mod tests {
             _profile_id: &ProfileId,
         ) -> Result<Vec<ValidationFinding>, AppError> {
             Ok(vec![])
+        }
+
+        fn update_profile_dns_policy(
+            &self,
+            _profile_id: &ProfileId,
+            _policy: DnsPolicy,
+        ) -> Result<ProfileDetail, AppError> {
+            Ok(self.detail.clone())
         }
 
         fn set_last_selected_profile(
@@ -1211,6 +1239,7 @@ mod tests {
                 created_at: Utc::now(),
                 updated_at: Utc::now(),
                 dns_intent: vec!["DNS 1.1.1.1".into()],
+                dns_policy: DnsPolicy::SplitDnsPreferred,
                 credential_mode,
                 remote_summary: "example.com:1194".into(),
                 has_saved_credentials: false,
@@ -1482,12 +1511,16 @@ mod tests {
 
         manager.disconnect().await.unwrap();
         assert_eq!(backend.disconnect_count(), 1);
+        // The auth file is sensitive, so it is removed immediately on disconnect.
         assert!(!auth_file.exists());
-        assert!(!runtime_dir.exists());
+        // Runtime assets must remain until OpenVPN exits so the down script can restore DNS.
+        assert!(runtime_dir.exists());
 
         session.tx.send(BackendEvent::Exited(Some(0))).unwrap();
         tokio::task::yield_now().await;
 
+        assert!(!auth_file.exists());
+        assert!(!runtime_dir.exists());
         assert_eq!(manager.snapshot().state, ConnectionState::Idle);
     }
 

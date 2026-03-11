@@ -5,6 +5,7 @@ use chrono::{DateTime, Utc};
 use parking_lot::Mutex;
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
+use crate::dns::DnsPolicy;
 use crate::errors::AppError;
 use crate::openvpn::runtime::Settings;
 use crate::profiles::repository::ProfileRepository;
@@ -29,7 +30,8 @@ impl SqliteRepository {
     }
 
     fn migrate(&self) -> Result<(), AppError> {
-        self.connection.lock().execute_batch(
+        let connection = self.connection.lock();
+        connection.execute_batch(
             r#"
             CREATE TABLE IF NOT EXISTS profiles (
                 id TEXT PRIMARY KEY,
@@ -41,6 +43,7 @@ impl SqliteRepository {
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 dns_intent_json TEXT NOT NULL,
+                dns_policy TEXT NOT NULL DEFAULT 'SplitDnsPreferred',
                 credential_mode TEXT NOT NULL,
                 remote_summary TEXT NOT NULL,
                 has_saved_credentials INTEGER NOT NULL DEFAULT 0,
@@ -79,6 +82,12 @@ impl SqliteRepository {
             );
             "#,
         )?;
+        ensure_column(
+            &connection,
+            "profiles",
+            "dns_policy",
+            "TEXT NOT NULL DEFAULT 'SplitDnsPreferred'",
+        )?;
         Ok(())
     }
 }
@@ -89,9 +98,9 @@ impl ProfileRepository for SqliteRepository {
         connection.execute(
             "INSERT OR REPLACE INTO profiles (
                 id, name, source_filename, managed_dir, managed_ovpn_path, original_import_path,
-                created_at, updated_at, dns_intent_json, credential_mode, remote_summary,
+                created_at, updated_at, dns_intent_json, dns_policy, credential_mode, remote_summary,
                 has_saved_credentials, validation_status, last_used_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, NULL)",
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, NULL)",
             params![
                 import.profile.id.to_string(),
                 import.profile.name,
@@ -103,6 +112,7 @@ impl ProfileRepository for SqliteRepository {
                 import.profile.updated_at.to_rfc3339(),
                 serde_json::to_string(&import.profile.dns_intent)
                     .map_err(|error| AppError::Serialization(error.to_string()))?,
+                dns_policy_to_string(&import.profile.dns_policy),
                 format!("{:?}", import.profile.credential_mode),
                 import.profile.remote_summary,
                 import.profile.has_saved_credentials as i64,
@@ -170,7 +180,7 @@ impl ProfileRepository for SqliteRepository {
         let profile = connection
             .query_row(
                 "SELECT id, name, source_filename, managed_dir, managed_ovpn_path, original_import_path,
-                        created_at, updated_at, dns_intent_json, credential_mode, remote_summary,
+                        created_at, updated_at, dns_intent_json, dns_policy, credential_mode, remote_summary,
                         has_saved_credentials, validation_status, last_used_at
                  FROM profiles WHERE id = ?1",
                 params![profile_id.to_string()],
@@ -261,6 +271,22 @@ impl ProfileRepository for SqliteRepository {
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
     }
 
+    fn update_profile_dns_policy(
+        &self,
+        profile_id: &ProfileId,
+        policy: DnsPolicy,
+    ) -> Result<ProfileDetail, AppError> {
+        self.connection.lock().execute(
+            "UPDATE profiles SET dns_policy = ?1, updated_at = ?2 WHERE id = ?3",
+            params![
+                dns_policy_to_string(&policy),
+                Utc::now().to_rfc3339(),
+                profile_id.to_string()
+            ],
+        )?;
+        self.get_profile(profile_id)
+    }
+
     fn set_last_selected_profile(&self, profile_id: Option<&ProfileId>) -> Result<(), AppError> {
         let connection = self.connection.lock();
 
@@ -300,9 +326,18 @@ impl ProfileRepository for SqliteRepository {
     fn delete_profile(&self, profile_id: &ProfileId) -> Result<(), AppError> {
         let connection = self.connection.lock();
         let id_str = profile_id.to_string();
-        connection.execute("DELETE FROM profile_assets WHERE profile_id = ?1", params![id_str])?;
-        connection.execute("DELETE FROM profile_validation_findings WHERE profile_id = ?1", params![id_str])?;
-        connection.execute("DELETE FROM connection_history WHERE profile_id = ?1", params![id_str])?;
+        connection.execute(
+            "DELETE FROM profile_assets WHERE profile_id = ?1",
+            params![id_str],
+        )?;
+        connection.execute(
+            "DELETE FROM profile_validation_findings WHERE profile_id = ?1",
+            params![id_str],
+        )?;
+        connection.execute(
+            "DELETE FROM connection_history WHERE profile_id = ?1",
+            params![id_str],
+        )?;
         connection.execute("DELETE FROM profiles WHERE id = ?1", params![id_str])?;
         Ok(())
     }
@@ -341,13 +376,14 @@ fn map_profile(row: &Row<'_>) -> rusqlite::Result<Profile> {
             .unwrap()
             .with_timezone(&Utc),
         dns_intent: serde_json::from_str(&row.get::<_, String>(8)?).unwrap_or_default(),
-        credential_mode: match row.get::<_, String>(9)?.as_str() {
+        dns_policy: dns_policy_from_string(&row.get::<_, String>(9)?),
+        credential_mode: match row.get::<_, String>(10)?.as_str() {
             "UserPass" => crate::profiles::CredentialMode::UserPass,
             _ => crate::profiles::CredentialMode::None,
         },
-        remote_summary: row.get(10)?,
-        has_saved_credentials: row.get::<_, i64>(11)? != 0,
-        validation_status: match row.get::<_, String>(12)?.as_str() {
+        remote_summary: row.get(11)?,
+        has_saved_credentials: row.get::<_, i64>(12)? != 0,
+        validation_status: match row.get::<_, String>(13)?.as_str() {
             "Warning" => ValidationStatus::Warning,
             "Blocked" => ValidationStatus::Blocked,
             _ => ValidationStatus::Ok,
@@ -396,6 +432,45 @@ fn map_finding(row: &Row<'_>) -> rusqlite::Result<ValidationFinding> {
     })
 }
 
+fn ensure_column(
+    connection: &Connection,
+    table: &str,
+    column: &str,
+    definition: &str,
+) -> Result<(), AppError> {
+    let mut statement = connection.prepare(&format!("PRAGMA table_info({table})"))?;
+    let exists = statement
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .any(|current| current == column);
+
+    if !exists {
+        connection.execute(
+            &format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"),
+            [],
+        )?;
+    }
+
+    Ok(())
+}
+
+fn dns_policy_to_string(policy: &DnsPolicy) -> &'static str {
+    match policy {
+        DnsPolicy::SplitDnsPreferred => "SplitDnsPreferred",
+        DnsPolicy::FullOverride => "FullOverride",
+        DnsPolicy::ObserveOnly => "ObserveOnly",
+    }
+}
+
+fn dns_policy_from_string(value: &str) -> DnsPolicy {
+    match value {
+        "FullOverride" => DnsPolicy::FullOverride,
+        "ObserveOnly" => DnsPolicy::ObserveOnly,
+        _ => DnsPolicy::SplitDnsPreferred,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -407,10 +482,8 @@ mod tests {
 
     #[test]
     fn clearing_last_selected_profile_removes_the_setting_row() {
-        let db_path = std::env::temp_dir().join(format!(
-            "openwrap-sqlite-test-{}.db",
-            uuid::Uuid::new_v4()
-        ));
+        let db_path =
+            std::env::temp_dir().join(format!("openwrap-sqlite-test-{}.db", uuid::Uuid::new_v4()));
         let repository = SqliteRepository::new(&db_path).unwrap();
         let profile_id = ProfileId::new();
 

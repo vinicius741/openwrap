@@ -11,7 +11,7 @@ use tokio::sync::{mpsc, Mutex as AsyncMutex};
 
 use crate::connection::SessionId;
 use crate::errors::AppError;
-use crate::openvpn::backend::{BackendEvent, ConnectRequest, SpawnedSession};
+use crate::openvpn::backend::{BackendEvent, ConnectRequest, ReconcileDnsRequest, SpawnedSession};
 use crate::openvpn::helper_protocol::HelperEvent;
 use crate::VpnBackend;
 
@@ -142,6 +142,41 @@ impl VpnBackend for HelperOpenVpnBackend {
             });
         }
         Ok(())
+    }
+
+    fn reconcile_dns(&self, request: ReconcileDnsRequest) -> Result<(), AppError> {
+        validate_helper_binary(&self.helper_binary)?;
+
+        let mut child = ProcessCommand::new(&self.helper_binary)
+            .arg("reconcile-dns")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(map_spawn_error)?;
+
+        if let Some(mut stdin) = child.stdin.take() {
+            let payload = serde_json::to_vec(&request)
+                .map_err(|error| AppError::Serialization(error.to_string()))?;
+            use std::io::Write;
+            stdin
+                .write_all(&payload)
+                .map_err(|error| AppError::OpenVpnLaunch(error.to_string()))?;
+        }
+
+        let output = child
+            .wait_with_output()
+            .map_err(|error| AppError::OpenVpnLaunch(error.to_string()))?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            Err(AppError::OpenVpnLaunch(if stderr.is_empty() {
+                "Privileged DNS reconciliation failed.".into()
+            } else {
+                format!("Privileged DNS reconciliation failed: {stderr}")
+            }))
+        }
     }
 }
 

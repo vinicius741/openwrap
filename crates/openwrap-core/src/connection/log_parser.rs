@@ -28,7 +28,10 @@ pub fn sanitize_log(stream: &str, line: &str) -> LogEntry {
         (LogLevel::Info, "connected")
     } else if line.contains("SIGUSR1") || line.contains("Restart pause") {
         (LogLevel::Warn, "retryable")
-    } else if line.contains("dhcp-option") || line.contains("PUSH_REPLY") {
+    } else if line.contains("dhcp-option")
+        || line.contains("PUSH_REPLY")
+        || line.contains("OPENWRAP_DNS_WARNING:")
+    {
         (LogLevel::Info, "dns")
     } else if let Some((level, classification)) = error_classification(line) {
         (level, classification)
@@ -53,7 +56,10 @@ pub fn classify_signal(line: &str) -> ParsedLogSignal {
         ParsedLogSignal::AuthFailed
     } else if line.contains("SIGUSR1") || line.contains("Restart pause") {
         ParsedLogSignal::RetryableFailure
-    } else if line.contains("dhcp-option") || line.contains("PUSH_REPLY") {
+    } else if line.contains("dhcp-option")
+        || line.contains("PUSH_REPLY")
+        || line.contains("OPENWRAP_DNS_WARNING:")
+    {
         ParsedLogSignal::DnsHint
     } else {
         ParsedLogSignal::None

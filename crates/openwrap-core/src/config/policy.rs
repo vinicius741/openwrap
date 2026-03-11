@@ -44,7 +44,9 @@ pub fn classify_directive(name: &str, args: &[String]) -> DirectiveClassificatio
             DirectiveClassification::Warned
         }
         "dhcp-option" => match args.first().map(|value| value.to_ascii_uppercase()) {
-            Some(option) if option == "DNS" => DirectiveClassification::Warned,
+            Some(option) if option == "DNS" || option == "DOMAIN" || option == "DOMAIN-SEARCH" => {
+                DirectiveClassification::Warned
+            }
             _ => DirectiveClassification::Blocked,
         },
         "setenv" => match (args.first(), args.get(1)) {
@@ -160,6 +162,24 @@ mod tests {
             DirectiveClassification::Warned
         );
         assert_eq!(
+            classify_directive(
+                "dhcp-option",
+                &[String::from("DOMAIN"), String::from("corp.example")]
+            ),
+            DirectiveClassification::Warned
+        );
+        assert_eq!(
+            classify_directive(
+                "dhcp-option",
+                &[
+                    String::from("DOMAIN-SEARCH"),
+                    String::from("corp.example"),
+                    String::from("lab.example")
+                ]
+            ),
+            DirectiveClassification::Warned
+        );
+        assert_eq!(
             classify_directive("setenv", &[String::from("CLIENT_CERT"), String::from("0")]),
             DirectiveClassification::Allowed
         );
@@ -174,7 +194,7 @@ mod tests {
         assert_eq!(
             classify_directive(
                 "dhcp-option",
-                &[String::from("DOMAIN"), String::from("corp.example")]
+                &[String::from("NTP"), String::from("corp.example")]
             ),
             DirectiveClassification::Blocked
         );

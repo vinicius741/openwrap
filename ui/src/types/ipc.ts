@@ -29,6 +29,7 @@ export interface Profile {
   managed_ovpn_path: string
   original_import_path: string
   dns_intent: string[]
+  dns_policy: 'SplitDnsPreferred' | 'FullOverride' | 'ObserveOnly'
   credential_mode: 'None' | 'UserPass'
   remote_summary: string
   has_saved_credentials: boolean
@@ -75,7 +76,7 @@ export interface ImportProfileResponse {
 export interface DnsObservation {
   config_requested: string[]
   runtime_pushed: string[]
-  effective_mode: 'ObserveOnly' | 'SystemResolvers'
+  effective_mode: 'ObserveOnly' | 'ScopedResolvers' | 'GlobalOverride'
   warnings: string[]
 }
 

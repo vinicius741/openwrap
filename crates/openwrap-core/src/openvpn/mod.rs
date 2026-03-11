@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use crate::errors::AppError;
 
-pub use backend::{BackendEvent, ConnectRequest, SpawnedSession};
+pub use backend::{BackendEvent, ConnectRequest, ReconcileDnsRequest, SpawnedSession};
 pub use direct_launcher::DirectOpenVpnBackend;
 pub use helper_launcher::HelperOpenVpnBackend;
 

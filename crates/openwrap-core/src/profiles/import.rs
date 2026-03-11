@@ -8,6 +8,7 @@ use sha2::{Digest, Sha256};
 
 use crate::app_state::AppPaths;
 use crate::config::{classify_directive, parse_profile, rewrite_profile, DirectiveClassification};
+use crate::dns::DnsPolicy;
 use crate::errors::AppError;
 use crate::profiles::repository::ProfileRepository;
 use crate::profiles::{
@@ -259,6 +260,7 @@ impl ProfileImporter {
             created_at: now,
             updated_at: now,
             dns_intent: parsed.dns_directives.clone(),
+            dns_policy: DnsPolicy::SplitDnsPreferred,
             credential_mode: if parsed.requires_auth_user_pass {
                 CredentialMode::UserPass
             } else {
@@ -520,7 +522,7 @@ mod tests {
         fs::create_dir_all(&source_dir).unwrap();
         fs::write(
             source_dir.join("sample.ovpn"),
-            "client\nremote vpn.example.com 1194\ndhcp-option DOMAIN corp.example\n",
+            "client\nremote vpn.example.com 1194\ndhcp-option NTP pool.ntp.org\n",
         )
         .unwrap();
 
@@ -547,6 +549,42 @@ mod tests {
             .errors
             .iter()
             .any(|error| error.contains("dhcp-option")));
+    }
+
+    #[test]
+    fn allows_domain_based_dhcp_options_with_warning_approval() {
+        let temp = TempDir::new().unwrap();
+        let source_dir = temp.path().join("source");
+        fs::create_dir_all(&source_dir).unwrap();
+        fs::write(
+            source_dir.join("sample.ovpn"),
+            "client\nremote vpn.example.com 1194\ndhcp-option DNS 10.0.1.50\ndhcp-option DOMAIN corp.example\ndhcp-option DOMAIN-SEARCH corp.example lab.example\n",
+        )
+        .unwrap();
+
+        let paths = AppPaths::new(temp.path().join("app"));
+        paths.ensure().unwrap();
+        let repository = Arc::new(SqliteRepository::new(&paths.database_path).unwrap());
+        let importer = ProfileImporter::new(paths, repository);
+
+        let response = importer
+            .import_profile(ImportProfileRequest {
+                source_path: source_dir.join("sample.ovpn"),
+                display_name: None,
+                allow_warnings: true,
+            })
+            .unwrap();
+
+        assert!(response.profile.is_some());
+        let profile = response.profile.unwrap();
+        assert_eq!(
+            profile.profile.dns_intent,
+            vec![
+                "DNS 10.0.1.50".to_string(),
+                "DOMAIN corp.example".to_string(),
+                "DOMAIN-SEARCH corp.example lab.example".to_string(),
+            ]
+        );
     }
 
     #[test]

@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 
 import { connectProfile, disconnectProfile, getConnectionState, getRecentLogs, submitCredentials } from '../features/connection/api'
-import { deleteProfile, getLastSelectedProfile, getProfile, importProfile, listProfiles, setLastSelectedProfile } from '../features/profiles/api'
+import { deleteProfile, getLastSelectedProfile, getProfile, importProfile, listProfiles, setLastSelectedProfile, updateProfileDnsPolicy } from '../features/profiles/api'
 import { detectOpenVpn, getSettings, updateSettings } from '../features/settings/api'
 import type { ImportWarningState } from '../types/domain'
 import type {
@@ -31,6 +31,7 @@ type AppStore = {
   selectProfile: (profileId: string) => Promise<void>
   refreshProfiles: () => Promise<void>
   deleteProfile: (profileId: string) => Promise<void>
+  updateSelectedProfileDnsPolicy: (dnsPolicy: 'SplitDnsPreferred' | 'FullOverride' | 'ObserveOnly') => Promise<void>
   beginImport: (filePath: string) => Promise<void>
   approveImportWarnings: () => Promise<void>
   connectSelected: () => Promise<void>
@@ -137,6 +138,23 @@ export const useAppStore = create<AppStore>((set, get) => ({
           await setLastSelectedProfile(null)
         }
       }
+    } catch (error) {
+      set({ error: normalizeCommandError(error) })
+    }
+  },
+
+  updateSelectedProfileDnsPolicy: async (dnsPolicy) => {
+    const selectedProfile = get().selectedProfile
+    if (!selectedProfile) {
+      return
+    }
+
+    try {
+      const updatedProfile = await updateProfileDnsPolicy(selectedProfile.profile.id, dnsPolicy)
+      set({
+        selectedProfile: updatedProfile,
+        error: null,
+      })
     } catch (error) {
       set({ error: normalizeCommandError(error) })
     }
