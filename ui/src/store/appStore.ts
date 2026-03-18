@@ -16,12 +16,17 @@ import type {
 } from '../types/ipc'
 import { normalizeCommandError } from '../lib/tauri'
 
+export type UiLogEntry = LogEntry & {
+  id: number
+}
+
 type AppStore = {
   profiles: ProfileSummary[]
   selectedProfileId: string | null
   selectedProfile: ProfileDetail | null
   connection: ConnectionSnapshot | null
-  logs: LogEntry[]
+  logs: UiLogEntry[]
+  nextLogId: number
   pendingCredentialPrompt: CredentialPrompt | null
   settings: Settings | null
   detection: OpenVpnDetection | null
@@ -43,7 +48,7 @@ type AppStore = {
   }) => Promise<void>
   setConnection: (snapshot: ConnectionSnapshot) => void
   setDnsObservation: (dnsObservation: ConnectionSnapshot['dns_observation']) => void
-  appendLog: (entry: LogEntry) => void
+  appendLogs: (entries: LogEntry[]) => void
   clearLogs: () => void
   setCredentialPrompt: (prompt: CredentialPrompt | null) => void
   setDetection: (detection: OpenVpnDetection) => void
@@ -58,6 +63,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   selectedProfile: null,
   connection: null,
   logs: [],
+  nextLogId: 0,
   pendingCredentialPrompt: null,
   settings: null,
   detection: null,
@@ -86,7 +92,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
         selectedProfileId,
         selectedProfile,
         connection,
-        logs,
+        logs: logs.map((entry, index) => ({ ...entry, id: index + 1 })),
+        nextLogId: logs.length,
         settings,
         detection,
         error: null,
@@ -297,6 +304,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
         connection.state === 'validating_profile' && connection.retry_count === 0
           ? []
           : state.logs,
+      nextLogId:
+        connection.state === 'validating_profile' && connection.retry_count === 0
+          ? 0
+          : state.nextLogId,
       error: null,
     })),
 
@@ -310,12 +321,25 @@ export const useAppStore = create<AppStore>((set, get) => ({
         : state.connection,
     })),
 
-  appendLog: (entry) =>
-    set((state) => ({
-      logs: [...state.logs.slice(-399), entry],
-    })),
+  appendLogs: (entries) => {
+    if (!entries.length) {
+      return
+    }
 
-  clearLogs: () => set({ logs: [] }),
+    set((state) => {
+      const nextEntries = entries.map((entry, index) => ({
+        ...entry,
+        id: state.nextLogId + index + 1,
+      }))
+
+      return {
+        logs: [...state.logs, ...nextEntries].slice(-400),
+        nextLogId: state.nextLogId + entries.length,
+      }
+    })
+  },
+
+  clearLogs: () => set({ logs: [], nextLogId: 0 }),
 
   setCredentialPrompt: (pendingCredentialPrompt) => set({ pendingCredentialPrompt, error: null }),
 
