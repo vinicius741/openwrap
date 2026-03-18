@@ -105,3 +105,94 @@ impl From<&AppError> for UserFacingError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn user_facing_error_from_validation() {
+        let error = AppError::Validation {
+            title: "Invalid config".to_string(),
+            message: "Directive not allowed".to_string(),
+            directive: Some("script-security".to_string()),
+            line: Some(10),
+        };
+        let user_error = UserFacingError::from(&error);
+        assert_eq!(user_error.code, "validation_failed");
+        assert_eq!(user_error.title, "Invalid config");
+        assert!(user_error.suggested_fix.is_some());
+        assert!(user_error.details_safe.is_some());
+    }
+
+    #[test]
+    fn user_facing_error_from_openvpn_not_found() {
+        let error = AppError::OpenVpnBinaryNotFound;
+        let user_error = UserFacingError::from(&error);
+        assert_eq!(user_error.code, "openvpn_not_found");
+        assert!(user_error.suggested_fix.is_some());
+    }
+
+    #[test]
+    fn user_facing_error_from_openvpn_launch() {
+        let error = AppError::OpenVpnLaunch("Failed to start".to_string());
+        let user_error = UserFacingError::from(&error);
+        assert_eq!(user_error.code, "openvpn_launch_failed");
+        assert!(user_error.suggested_fix.is_some());
+    }
+
+    #[test]
+    fn user_facing_error_from_keychain() {
+        let error = AppError::Keychain("Access denied".to_string());
+        let user_error = UserFacingError::from(&error);
+        assert_eq!(user_error.code, "keychain_failed");
+        assert!(user_error.suggested_fix.is_some());
+    }
+
+    #[test]
+    fn user_facing_error_from_profile_not_found() {
+        let error = AppError::ProfileNotFound("test-profile".to_string());
+        let user_error = UserFacingError::from(&error);
+        assert_eq!(user_error.code, "internal_error");
+        assert_eq!(user_error.title, "Unexpected error");
+    }
+
+    #[test]
+    fn user_facing_error_from_settings() {
+        let error = AppError::Settings("Invalid setting".to_string());
+        let user_error = UserFacingError::from(&error);
+        assert_eq!(user_error.code, "internal_error");
+    }
+
+    #[test]
+    fn user_facing_error_serialization() {
+        let error = AppError::OpenVpnBinaryNotFound;
+        let user_error = UserFacingError::from(&error);
+        let json = serde_json::to_string(&user_error).unwrap();
+        let roundtrip: UserFacingError = serde_json::from_str(&json).unwrap();
+        assert_eq!(roundtrip.code, user_error.code);
+        assert_eq!(roundtrip.title, user_error.title);
+    }
+
+    #[test]
+    fn app_error_display() {
+        let error = AppError::ProfileNotFound("my-profile".to_string());
+        assert!(error.to_string().contains("my-profile"));
+    }
+
+    #[test]
+    fn app_error_io() {
+        let error = AppError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "file not found",
+        ));
+        assert!(error.to_string().contains("io error"));
+    }
+
+    #[test]
+    fn app_error_unsupported_absolute_path() {
+        let path = std::path::PathBuf::from("/etc/passwd");
+        let error = AppError::UnsupportedAbsolutePath(path.clone());
+        assert!(error.to_string().contains("/etc/passwd"));
+    }
+}
