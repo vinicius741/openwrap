@@ -500,6 +500,7 @@ h4 { font-size: 14px; }
   gap: 8px;
   max-height: 280px;
   overflow: auto;
+  overscroll-behavior: contain;
   margin-top: 16px;
   padding: 16px;
   border-radius: var(--radius-lg);
@@ -509,6 +510,7 @@ h4 { font-size: 14px; }
   color: var(--text-secondary);
   border: 1px solid var(--line);
   box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.4);
+  contain: content;
 }
 
 .log-viewer::-webkit-scrollbar {
