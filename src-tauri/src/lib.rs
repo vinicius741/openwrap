@@ -7,6 +7,7 @@ mod tray;
 use app_state::AppState;
 use openwrap_core::connection::CoreEvent;
 use tauri::{Emitter, Manager};
+use tokio::sync::broadcast::error::RecvError;
 
 pub fn run() {
     tauri::Builder::default()
@@ -23,7 +24,18 @@ pub fn run() {
             let events_app = app.handle().clone();
             let mut event_rx = app_state.connection_manager.subscribe();
             tauri::async_runtime::spawn(async move {
-                while let Ok(event) = event_rx.recv().await {
+                loop {
+                    let event = match event_rx.recv().await {
+                        Ok(event) => event,
+                        Err(RecvError::Lagged(skipped)) => {
+                            eprintln!(
+                                "warning: connection event forwarder lagged and skipped {skipped} events"
+                            );
+                            continue;
+                        }
+                        Err(RecvError::Closed) => break,
+                    };
+
                     match event {
                         CoreEvent::StateChanged(payload) => {
                             crate::tray::sync_connection_state(&events_app, &payload);

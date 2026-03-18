@@ -565,6 +565,7 @@ fn handle_log(
     let entry = sanitize_log(stream, line);
     let signal = classify_signal(line);
     let mut disconnect_session = None;
+    let mut emit_state_changed = false;
 
     {
         let mut state = state.lock();
@@ -583,6 +584,7 @@ fn handle_log(
                 state.snapshot.substate = None;
                 state.snapshot.log_file_path = None;
                 state.snapshot.last_error = None;
+                emit_state_changed = true;
             }
             ParsedLogSignal::AuthFailed => {
                 let error = UserFacingError {
@@ -598,11 +600,13 @@ fn handle_log(
                 state.reconnect_plan = None;
                 state.active_session = None;
                 disconnect_session = Some(active_session.session_id.clone());
+                emit_state_changed = true;
             }
             ParsedLogSignal::RetryableFailure => {
                 if state.snapshot.state != ConnectionState::Disconnecting {
                     state.snapshot.state = ConnectionState::Reconnecting;
                     state.snapshot.substate = Some("OpenVPN requested a restart.".into());
+                    emit_state_changed = true;
                 }
             }
             ParsedLogSignal::DnsHint => {
@@ -614,8 +618,9 @@ fn handle_log(
             ParsedLogSignal::None => {}
         }
 
-        state.snapshot.profile_id = Some(profile_id.clone());
-        let _ = events.send(CoreEvent::StateChanged(state.snapshot.clone()));
+        if emit_state_changed {
+            let _ = events.send(CoreEvent::StateChanged(state.snapshot.clone()));
+        }
     }
 
     let _ = events.send(CoreEvent::LogLine(entry));
@@ -1596,6 +1601,42 @@ mod tests {
             .as_ref()
             .and_then(|error| error.suggested_fix.as_deref())
             .is_some_and(|fix| !fix.contains("Show logs")));
+    }
+
+    #[tokio::test]
+    async fn plain_log_lines_do_not_emit_state_changed_events() {
+        let (manager, backend, profile_id, _, _) = build_manager(CredentialMode::None, None);
+        let session = backend.queue_session(Some(72));
+        let mut events = manager.subscribe();
+
+        manager.connect(profile_id.to_string()).await.unwrap();
+        tokio::task::yield_now().await;
+
+        while events.try_recv().is_ok() {}
+
+        session
+            .tx
+            .send(BackendEvent::Stdout("NOTE: still negotiating".into()))
+            .unwrap();
+        tokio::task::yield_now().await;
+
+        let mut state_changed = 0;
+        let mut log_lines = 0;
+
+        loop {
+            match events.try_recv() {
+                Ok(CoreEvent::StateChanged(_)) => state_changed += 1,
+                Ok(CoreEvent::LogLine(_)) => log_lines += 1,
+                Ok(CoreEvent::CredentialsRequested(_) | CoreEvent::DnsObserved(_)) => {}
+                Err(tokio::sync::broadcast::error::TryRecvError::Empty) => break,
+                Err(error) => panic!("unexpected event receive error: {error}"),
+            }
+        }
+
+        assert_eq!(log_lines, 1);
+        assert_eq!(state_changed, 0);
+
+        session.tx.send(BackendEvent::Exited(Some(0))).unwrap();
     }
 
     #[tokio::test]
