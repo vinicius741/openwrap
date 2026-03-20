@@ -3,6 +3,7 @@ pub mod config;
 pub mod connection;
 pub mod dns;
 pub mod errors;
+pub mod logging;
 pub mod openvpn;
 pub mod profiles;
 pub mod secrets;
