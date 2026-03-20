@@ -10,6 +10,8 @@ use crate::error::CommandError;
 #[serde(rename_all = "camelCase")]
 pub struct SettingsPatch {
     pub openvpn_path_override: Option<String>,
+    #[serde(default)]
+    pub verbose_logging: bool,
 }
 
 #[tauri::command]
@@ -29,8 +31,15 @@ pub fn update_settings(
 ) -> Result<openwrap_core::openvpn::runtime::Settings, CommandError> {
     let settings = openwrap_core::openvpn::runtime::Settings {
         openvpn_path_override: patch.openvpn_path_override.map(PathBuf::from),
+        verbose_logging: patch.verbose_logging,
     };
     state.profile_repository().save_settings(&settings)?;
+
+    // Propagate verbose logging setting to connection manager
+    state
+        .connection_manager
+        .set_verbose_logging(settings.verbose_logging);
+
     Ok(settings)
 }
 

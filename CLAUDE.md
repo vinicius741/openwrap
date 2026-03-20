@@ -69,6 +69,7 @@ OpenWrap
    - `config/` — OpenVPN config parsing and rewriting
    - `secrets/` — macOS Keychain integration
    - `dns/` — DNS observation and reconciliation
+   - `logging/` — Session-based file logging for debugging
    - `openvpn/` — Process launching via helper or direct
 
 ### Key Traits (openwrap-core)
@@ -99,6 +100,7 @@ Available commands are registered in `src-tauri/src/lib.rs`:
 - `import_profile`, `list_profiles`, `get_profile`, `delete_profile`
 - `connect`, `disconnect`, `submit_credentials`, `get_connection_state`
 - `get_settings`, `update_settings`, `detect_openvpn`
+- `reveal_logs_folder`, `get_recent_sessions`, `cleanup_old_logs`
 
 ### Events (Backend → Frontend)
 
@@ -141,7 +143,31 @@ Transitions are handled by `state_machine.rs` via `transition(current, intent)` 
 
 - **SQLite** (`crates/openwrap-core/src/storage/sqlite.rs`) — Profiles, settings
 - **macOS Keychain** (`crates/openwrap-core/src/secrets/keychain.rs`) — Usernames only
+- **Session Logs** (`crates/openwrap-core/src/logging/`) — Connection debugging logs
 - Base directory: `~/Library/Application Support/OpenWrap/`
+
+### Session Logs Structure
+
+```
+~/Library/Application Support/OpenWrap/
+└── logs/
+    ├── sessions/
+    │   └── 2024-01-15/
+    │       └── session-{uuid}/
+    │           ├── metadata.json    # Session info (profile, times, outcome)
+    │           ├── openvpn.log      # Raw OpenVPN output
+    │           ├── dns.log          # DNS observations and changes
+    │           └── core.log         # State transitions and events
+    └── last-failed-openvpn.log      # Most recent failure for UI display
+```
+
+Session logs are organized by date and include:
+- **metadata.json**: Profile name, start/end times, outcome (success/failed/cancelled)
+- **openvpn.log**: All stdout/stderr from OpenVPN process
+- **dns.log**: DNS configuration changes, auto-promotion events
+- **core.log**: State machine transitions, PID info, exit codes
+
+Enable verbose logging in Settings for immediate flush (useful for debugging crashes).
 
 ## File Naming Conventions
 
