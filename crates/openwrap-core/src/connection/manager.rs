@@ -20,8 +20,9 @@ use crate::connection::{
     ConnectionSnapshot, ConnectionState, CredentialPrompt, CredentialSubmission, LogEntry,
     LogLevel, SessionId,
 };
-use crate::dns::{DnsObserver, DnsPolicy, DnsRestoreStatus, PassiveDnsObserver};
+use crate::dns::{extract_dns_directives, DnsObserver, DnsPolicy, DnsRestoreStatus, PassiveDnsObserver};
 use crate::errors::{AppError, UserFacingError};
+use crate::logging::{SessionOutcome, SharedSessionLogManager};
 use crate::openvpn::{BackendEvent, ConnectRequest, ReconcileDnsRequest};
 use crate::profiles::{CredentialMode, ProfileDetail, ProfileId};
 use crate::{ProfileRepository, SecretStore, VpnBackend};
@@ -97,6 +98,7 @@ pub struct ConnectionManager {
     dns_observer: Arc<dyn DnsObserver>,
     events: broadcast::Sender<CoreEvent>,
     state: Arc<Mutex<ManagerState>>,
+    session_log: SharedSessionLogManager,
 }
 
 impl ConnectionManager {
@@ -107,6 +109,9 @@ impl ConnectionManager {
         backend: Arc<dyn VpnBackend>,
     ) -> Self {
         let (events, _) = broadcast::channel(256);
+        let settings = repository.get_settings().ok();
+        let verbose = settings.as_ref().map(|s| s.verbose_logging).unwrap_or(false);
+        let session_log = SharedSessionLogManager::new(paths.logs_dir.clone(), verbose);
         Self {
             paths,
             repository,
@@ -115,6 +120,7 @@ impl ConnectionManager {
             dns_observer: Arc::new(PassiveDnsObserver),
             events,
             state: Arc::new(Mutex::new(ManagerState::default())),
+            session_log,
         }
     }
 
@@ -138,6 +144,16 @@ impl ConnectionManager {
             .into_iter()
             .rev()
             .collect()
+    }
+
+    /// Get the session log manager for log operations.
+    pub fn session_log(&self) -> &SharedSessionLogManager {
+        &self.session_log
+    }
+
+    /// Update verbose logging mode.
+    pub fn set_verbose_logging(&self, verbose: bool) {
+        self.session_log.set_verbose(verbose);
     }
 
     pub async fn connect(&self, profile_id: String) -> Result<ConnectionSnapshot, AppError> {
@@ -289,6 +305,7 @@ impl ConnectionManager {
             self.dns_observer.clone(),
             self.events.clone(),
             self.state.clone(),
+            self.session_log.clone(),
             plan,
             is_retry,
         )
@@ -348,10 +365,12 @@ fn start_connect_attempt(
     dns_observer: Arc<dyn DnsObserver>,
     events: broadcast::Sender<CoreEvent>,
     state: Arc<Mutex<ManagerState>>,
+    session_log: SharedSessionLogManager,
     plan: ConnectionPlan,
     is_retry: bool,
 ) -> Result<ConnectionSnapshot, AppError> {
     let profile_id = plan.detail.profile.id.clone();
+    let profile_name = plan.detail.profile.name.clone();
     let prepare_intent = if is_retry {
         ConnectionIntent::PrepareRetry
     } else {
@@ -380,6 +399,18 @@ fn start_connect_attempt(
             &plan.detail.profile.dns_intent,
             plan.detail.profile.dns_policy.clone(),
         );
+        let dns_obs = &state.snapshot.dns_observation;
+        session_log.log_dns(&format!(
+            "Initial DNS: {} servers, effective_mode={:?}",
+            dns_obs.config_requested.len(),
+            dns_obs.effective_mode
+        ));
+        if !dns_obs.config_requested.is_empty() {
+            session_log.log_dns(&format!("DNS config: {}", dns_obs.config_requested.join(", ")));
+        }
+        if !dns_obs.warnings.is_empty() {
+            session_log.log_dns(&format!("DNS warnings: {}", dns_obs.warnings.join("; ")));
+        }
         let _ = events.send(CoreEvent::StateChanged(state.snapshot.clone()));
         let _ = events.send(CoreEvent::DnsObserved(
             state.snapshot.dns_observation.clone(),
@@ -404,6 +435,14 @@ fn start_connect_attempt(
     };
 
     let session_id = SessionId::new();
+
+    // Start session logging
+    session_log.start_session(&session_id, &profile_id, &profile_name)?;
+    session_log.log_core(&format!(
+        "Connection attempt started (retry={})",
+        is_retry
+    ));
+
     let runtime_dir = match prepare_runtime_dir(&paths, &profile_id, &session_id) {
         Ok(runtime_dir) => runtime_dir,
         Err(error) => {
@@ -487,6 +526,7 @@ fn start_connect_attempt(
     };
 
     let task_state = state.clone();
+    let task_session_log = session_log.clone();
     tokio::spawn(async move {
         let mut observation = observation;
         while let Some(event) = event_rx.recv().await {
@@ -497,6 +537,10 @@ fn start_connect_attempt(
                         state.snapshot.pid = pid;
                         let _ = events.send(CoreEvent::StateChanged(state.snapshot.clone()));
                     }
+                    task_session_log.log_core(&format!(
+                        "OpenVPN process started with PID {}",
+                        pid.map(|p| p.to_string()).unwrap_or_else(|| "unknown".to_string())
+                    ));
                 }
                 BackendEvent::Stdout(line) => handle_log(
                     &paths,
@@ -508,6 +552,7 @@ fn start_connect_attempt(
                     &dns_observer,
                     &active_session,
                     &mut observation,
+                    &task_session_log,
                     "stdout",
                     &line,
                 ),
@@ -521,10 +566,15 @@ fn start_connect_attempt(
                     &dns_observer,
                     &active_session,
                     &mut observation,
+                    &task_session_log,
                     "stderr",
                     &line,
                 ),
                 BackendEvent::Exited(code) => {
+                    task_session_log.log_core(&format!(
+                        "OpenVPN process exited with code {:?}",
+                        code
+                    ));
                     match handle_exit(
                         &paths,
                         &task_state,
@@ -532,6 +582,7 @@ fn start_connect_attempt(
                         &profile_id,
                         &backend,
                         &active_session,
+                        &task_session_log,
                         code,
                     ) {
                         ExitAction::Stop => break,
@@ -539,6 +590,10 @@ fn start_connect_attempt(
                             delay_seconds,
                             plan,
                         } => {
+                            task_session_log.log_core(&format!(
+                                "Scheduling retry in {} seconds",
+                                delay_seconds
+                            ));
                             tokio::spawn(schedule_retry(
                                 paths.clone(),
                                 repository.clone(),
@@ -546,6 +601,7 @@ fn start_connect_attempt(
                                 dns_observer.clone(),
                                 events.clone(),
                                 task_state.clone(),
+                                task_session_log.clone(),
                                 plan,
                                 delay_seconds,
                                 active_session.generation,
@@ -571,6 +627,7 @@ fn handle_log(
     dns_observer: &Arc<dyn DnsObserver>,
     active_session: &ActiveSession,
     observation: &mut crate::dns::DnsObservation,
+    session_log: &SharedSessionLogManager,
     stream: &str,
     line: &str,
 ) {
@@ -579,6 +636,9 @@ fn handle_log(
     let mut disconnect_session = None;
     let mut emit_state_changed = false;
     let mut persist_auto_promoted_policy = false;
+
+    // Log to session file
+    session_log.log_openvpn(&format!("[{}] {}", stream, line));
 
     {
         let mut state = state.lock();
@@ -598,6 +658,7 @@ fn handle_log(
                 state.snapshot.log_file_path = None;
                 state.snapshot.last_error = None;
                 emit_state_changed = true;
+                session_log.log_core("State transition: Connected");
             }
             ParsedLogSignal::AuthFailed => {
                 let error = UserFacingError {
@@ -614,17 +675,29 @@ fn handle_log(
                 state.active_session = None;
                 disconnect_session = Some(active_session.session_id.clone());
                 emit_state_changed = true;
+                session_log.log_core("State transition: Error (auth_failed)");
             }
             ParsedLogSignal::RetryableFailure => {
                 if state.snapshot.state != ConnectionState::Disconnecting {
                     state.snapshot.state = ConnectionState::Reconnecting;
                     state.snapshot.substate = Some("OpenVPN requested a restart.".into());
                     emit_state_changed = true;
+                    session_log.log_core("State transition: Reconnecting (retryable failure)");
                 }
             }
             ParsedLogSignal::DnsHint => {
-                if dns_observer.update_from_log(observation, line) {
+                let extracted = extract_dns_directives(line);
+                let changed = dns_observer.update_from_log(observation, line);
+                if !extracted.is_empty() {
+                    session_log.log_dns(&format!(
+                        "DNS hint extracted: {} (changed={})",
+                        extracted.join(", "),
+                        changed
+                    ));
+                }
+                if changed {
                     state.snapshot.dns_observation = observation.clone();
+                    session_log.log_dns(&format_dns_observation(observation));
                     if observation.auto_promoted_policy == Some(DnsPolicy::FullOverride)
                         && !state.auto_promoted_policy_persisted
                     {
@@ -633,6 +706,7 @@ fn handle_log(
                             plan.detail.profile.dns_policy = DnsPolicy::FullOverride;
                         }
                         persist_auto_promoted_policy = true;
+                        session_log.log_dns("DNS policy auto-promoted to FullOverride");
                     }
                     let _ = events.send(CoreEvent::DnsObserved(observation.clone()));
                 }
@@ -679,12 +753,33 @@ fn handle_exit(
     profile_id: &ProfileId,
     backend: &Arc<dyn VpnBackend>,
     active_session: &ActiveSession,
+    session_log: &SharedSessionLogManager,
     code: Option<i32>,
 ) -> ExitAction {
     cleanup_runtime_artifacts(active_session);
+
+    let dns_before_reconcile = {
+        let state_guard = state.lock();
+        state_guard.snapshot.dns_observation.clone()
+    };
+    session_log.log_dns(&format!(
+        "DNS before reconciliation: effective_mode={:?}, restore_status={:?}",
+        dns_before_reconcile.effective_mode,
+        dns_before_reconcile.restore_status
+    ));
+
     let reconcile_result = backend.reconcile_dns(ReconcileDnsRequest {
         runtime_root: paths.runtime_dir.clone(),
     });
+
+    match &reconcile_result {
+        Ok(()) => {
+            session_log.log_dns("DNS reconciliation succeeded");
+        }
+        Err(e) => {
+            session_log.log_dns(&format!("DNS reconciliation failed: {}", e));
+        }
+    }
 
     let mut state = state.lock();
     if !session_is_current(&state, active_session) {
@@ -700,6 +795,7 @@ fn handle_exit(
         state.reconnect_plan = None;
         state.auto_promoted_policy_persisted = false;
         if let Err(error) = reconcile_result {
+            session_log.log_core(&format!("DNS reconciliation failed: {}", error));
             apply_terminal_error(
                 &mut state.snapshot,
                 None,
@@ -710,6 +806,7 @@ fn handle_exit(
             let _ = events.send(CoreEvent::DnsObserved(
                 state.snapshot.dns_observation.clone(),
             ));
+            session_log.end_session(SessionOutcome::Failed);
             return ExitAction::Stop;
         }
 
@@ -718,6 +815,8 @@ fn handle_exit(
         let _ = events.send(CoreEvent::DnsObserved(
             state.snapshot.dns_observation.clone(),
         ));
+        session_log.log_core("State transition: Idle (clean disconnect)");
+        session_log.end_session(SessionOutcome::Success);
         return ExitAction::Stop;
     }
 
@@ -731,6 +830,7 @@ fn handle_exit(
         state.snapshot.state = ConnectionState::Error;
         state.snapshot.substate = None;
         let _ = events.send(CoreEvent::StateChanged(state.snapshot.clone()));
+        session_log.end_session(SessionOutcome::Failed);
         return ExitAction::Stop;
     }
 
@@ -742,6 +842,7 @@ fn handle_exit(
             state.snapshot.substate = Some(format!("Retrying in {delay_seconds} seconds"));
             state.snapshot.last_error = None;
             let _ = events.send(CoreEvent::StateChanged(state.snapshot.clone()));
+            // Don't end session on retry - it will continue
             return ExitAction::Retry {
                 delay_seconds,
                 plan,
@@ -759,6 +860,7 @@ fn handle_exit(
         state.snapshot.dns_observation.clone(),
     ));
     let _ = events.send(CoreEvent::StateChanged(state.snapshot.clone()));
+    session_log.end_session(SessionOutcome::Failed);
     ExitAction::Stop
 }
 
@@ -769,6 +871,7 @@ async fn schedule_retry(
     dns_observer: Arc<dyn DnsObserver>,
     events: broadcast::Sender<CoreEvent>,
     state: Arc<Mutex<ManagerState>>,
+    session_log: SharedSessionLogManager,
     plan: ConnectionPlan,
     delay_seconds: u64,
     previous_generation: u64,
@@ -793,6 +896,7 @@ async fn schedule_retry(
         dns_observer,
         events.clone(),
         state.clone(),
+        session_log,
         plan.clone(),
         true,
     );
@@ -1117,6 +1221,27 @@ fn persist_failed_connection_log(paths: &AppPaths, logs: &VecDeque<LogEntry>) ->
     Some(path.to_string_lossy().into_owned())
 }
 
+fn format_dns_observation(obs: &crate::dns::DnsObservation) -> String {
+    let mut parts = Vec::new();
+    parts.push(format!("effective_mode={:?}", obs.effective_mode));
+    if !obs.config_requested.is_empty() {
+        parts.push(format!("requested={}", obs.config_requested.join("|")));
+    }
+    if !obs.runtime_pushed.is_empty() {
+        parts.push(format!("pushed={}", obs.runtime_pushed.join("|")));
+    }
+    if let Some(auto) = &obs.auto_promoted_policy {
+        parts.push(format!("auto_promoted={:?}", auto));
+    }
+    if let Some(restore) = &obs.restore_status {
+        parts.push(format!("restore_status={:?}", restore));
+    }
+    if !obs.warnings.is_empty() {
+        parts.push(format!("warnings={}", obs.warnings.join(";")));
+    }
+    format!("DNS: {}", parts.join(", "))
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::{HashMap, VecDeque};
@@ -1417,6 +1542,7 @@ mod tests {
             detail,
             settings: crate::openvpn::runtime::Settings {
                 openvpn_path_override: Some(openvpn_path),
+                verbose_logging: false,
             },
             last_selected: Mutex::new(None),
             touch_count: Mutex::new(0),
