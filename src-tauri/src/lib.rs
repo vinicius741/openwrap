@@ -79,6 +79,9 @@ pub fn run() {
             commands::settings::update_settings,
             commands::settings::detect_openvpn,
             commands::settings::reveal_profile_in_finder,
+            commands::logs::reveal_logs_folder,
+            commands::logs::get_recent_sessions,
+            commands::logs::cleanup_old_logs,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run OpenWrap");
