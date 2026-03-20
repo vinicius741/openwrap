@@ -119,9 +119,21 @@ export interface LogEntry {
 
 export interface Settings {
   openvpn_path_override: string | null
+  verbose_logging: boolean
 }
 
 export interface OpenVpnDetection {
   discovered_paths: string[]
   selected_path: string | null
+}
+
+export type SessionOutcome = 'success' | 'failed' | 'cancelled' | 'in_progress'
+
+export interface SessionSummary {
+  session_id: string
+  profile_name: string
+  started_at: string
+  ended_at: string | null
+  outcome: SessionOutcome
+  log_dir: string
 }

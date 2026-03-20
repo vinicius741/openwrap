@@ -5,10 +5,11 @@ export async function getSettings() {
   return invokeCommand<Settings>('get_settings')
 }
 
-export async function updateSettings(openvpnPathOverride: string | null) {
-  return invokeCommand<Settings>('update_settings', {
-    patch: { openvpnPathOverride },
-  })
+export async function updateSettings(patch: {
+  openvpnPathOverride: string | null
+  verboseLogging: boolean
+}) {
+  return invokeCommand<Settings>('update_settings', { patch })
 }
 
 export async function detectOpenVpn() {

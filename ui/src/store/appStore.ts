@@ -55,7 +55,7 @@ type AppStore = {
   setDetection: (detection: OpenVpnDetection) => void
   setError: (error: UserFacingError | null) => void
   clearImportWarning: () => void
-  saveSettings: (openvpnPathOverride: string | null) => Promise<void>
+  saveSettings: (openvpnPathOverride: string | null, verboseLogging: boolean) => Promise<void>
 }
 
 export const useAppStore = create<AppStore>((set, get) => ({
@@ -367,10 +367,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   clearImportWarning: () => set({ importWarning: null }),
 
-  saveSettings: async (openvpnPathOverride) => {
+  saveSettings: async (openvpnPathOverride, verboseLogging) => {
     try {
       const [settings, detection] = await Promise.all([
-        updateSettings(openvpnPathOverride),
+        updateSettings({ openvpnPathOverride, verboseLogging }),
         detectOpenVpn(),
       ])
       set({ settings, detection, error: null })

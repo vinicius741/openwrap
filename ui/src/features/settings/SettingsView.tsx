@@ -8,9 +8,11 @@ export function SettingsView() {
   const saveSettings = useAppStore((state) => state.saveSettings)
 
   const [overridePath, setOverridePath] = useState('')
+  const [verboseLogging, setVerboseLogging] = useState(false)
 
   useEffect(() => {
     setOverridePath(settings?.openvpn_path_override ?? '')
+    setVerboseLogging(settings?.verbose_logging ?? false)
   }, [settings])
 
   return (
@@ -31,9 +33,21 @@ export function SettingsView() {
         />
       </div>
 
+      <div className="settings-field">
+        <label>
+          <input
+            type="checkbox"
+            checked={verboseLogging}
+            onChange={(event) => setVerboseLogging(event.target.checked)}
+          />
+          Verbose logging
+        </label>
+        <p className="settings-hint">Enable detailed logging for debugging connection issues</p>
+      </div>
+
       <button
         className="action-button action-primary"
-        onClick={() => void saveSettings(overridePath.trim() || null)}
+        onClick={() => void saveSettings(overridePath.trim() || null, verboseLogging)}
         type="button"
       >
         Save
