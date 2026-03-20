@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Settings {
     pub openvpn_path_override: Option<PathBuf>,
+    #[serde(default)]
+    pub verbose_logging: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,12 +50,14 @@ mod tests {
     fn settings_default() {
         let settings = Settings::default();
         assert!(settings.openvpn_path_override.is_none());
+        assert!(!settings.verbose_logging);
     }
 
     #[test]
     fn settings_with_override() {
         let settings = Settings {
             openvpn_path_override: Some(PathBuf::from("/custom/path/openvpn")),
+            verbose_logging: false,
         };
         assert!(settings.openvpn_path_override.is_some());
         assert_eq!(
@@ -103,6 +107,7 @@ mod tests {
     fn settings_serialization() {
         let settings = Settings {
             openvpn_path_override: Some(PathBuf::from("/test/openvpn")),
+            verbose_logging: true,
         };
         let json = serde_json::to_string(&settings).unwrap();
         let roundtrip: Settings = serde_json::from_str(&json).unwrap();
@@ -110,6 +115,7 @@ mod tests {
             roundtrip.openvpn_path_override,
             settings.openvpn_path_override
         );
+        assert!(roundtrip.verbose_logging);
     }
 
     #[test]
