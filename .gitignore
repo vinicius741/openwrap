@@ -1,6 +1,7 @@
 node_modules/
 dist/
 target/
+target-user/
 .DS_Store
 Cargo.lock
 pnpm-lock.yaml

@@ -18,11 +18,11 @@ use crate::connection::log_parser::{
 use crate::connection::state_machine::{transition, ConnectionIntent};
 use crate::connection::{
     ConnectionSnapshot, ConnectionState, CredentialPrompt, CredentialSubmission, LogEntry,
-    SessionId,
+    LogLevel, SessionId,
 };
-use crate::dns::{DnsObserver, PassiveDnsObserver};
+use crate::dns::{DnsObserver, DnsPolicy, DnsRestoreStatus, PassiveDnsObserver};
 use crate::errors::{AppError, UserFacingError};
-use crate::openvpn::{BackendEvent, ConnectRequest};
+use crate::openvpn::{BackendEvent, ConnectRequest, ReconcileDnsRequest};
 use crate::profiles::{CredentialMode, ProfileDetail, ProfileId};
 use crate::{ProfileRepository, SecretStore, VpnBackend};
 
@@ -30,6 +30,10 @@ const MAX_LOG_ENTRIES: usize = 500;
 const AUTH_FILE_NAME: &str = "auth.txt";
 const LAUNCH_CONFIG_FILE_NAME: &str = "profile.ovpn";
 const FAILED_CONNECTION_LOG_NAME: &str = "last-failed-openvpn.log";
+const AUTO_PROMOTION_PERSIST_FAILED_MESSAGE: &str =
+    "OpenWrap switched this connection to Full override, but could not save that policy for future connections.";
+const DNS_RESTORE_PENDING_MESSAGE: &str =
+    "DNS restore failed; OpenWrap will retry reconciliation on next launch.";
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
@@ -68,6 +72,7 @@ struct ManagerState {
     active_session: Option<ActiveSession>,
     reconnect_plan: Option<ConnectionPlan>,
     next_generation: u64,
+    auto_promoted_policy_persisted: bool,
 }
 
 impl Default for ManagerState {
@@ -79,6 +84,7 @@ impl Default for ManagerState {
             active_session: None,
             reconnect_plan: None,
             next_generation: 0,
+            auto_promoted_policy_persisted: false,
         }
     }
 }
@@ -318,6 +324,7 @@ impl ConnectionManager {
         state.pending_credentials = None;
         state.reconnect_plan = None;
         state.active_session = None;
+        state.auto_promoted_policy_persisted = false;
         state.snapshot = ConnectionSnapshot::default();
         let _ = self
             .events
@@ -357,6 +364,7 @@ fn start_connect_attempt(
         state.reconnect_plan = Some(plan.clone());
         if !is_retry {
             state.logs.clear();
+            state.auto_promoted_policy_persisted = false;
         }
         state.snapshot.state = transition(state.snapshot.state.clone(), prepare_intent)?;
         state.snapshot.profile_id = Some(profile_id.clone());
@@ -494,6 +502,7 @@ fn start_connect_attempt(
                     &paths,
                     &task_state,
                     &events,
+                    &repository,
                     &profile_id,
                     &backend,
                     &dns_observer,
@@ -506,6 +515,7 @@ fn start_connect_attempt(
                     &paths,
                     &task_state,
                     &events,
+                    &repository,
                     &profile_id,
                     &backend,
                     &dns_observer,
@@ -520,6 +530,7 @@ fn start_connect_attempt(
                         &task_state,
                         &events,
                         &profile_id,
+                        &backend,
                         &active_session,
                         code,
                     ) {
@@ -554,6 +565,7 @@ fn handle_log(
     paths: &AppPaths,
     state: &Arc<Mutex<ManagerState>>,
     events: &broadcast::Sender<CoreEvent>,
+    repository: &Arc<dyn ProfileRepository>,
     profile_id: &ProfileId,
     backend: &Arc<dyn VpnBackend>,
     dns_observer: &Arc<dyn DnsObserver>,
@@ -566,6 +578,7 @@ fn handle_log(
     let signal = classify_signal(line);
     let mut disconnect_session = None;
     let mut emit_state_changed = false;
+    let mut persist_auto_promoted_policy = false;
 
     {
         let mut state = state.lock();
@@ -612,6 +625,15 @@ fn handle_log(
             ParsedLogSignal::DnsHint => {
                 if dns_observer.update_from_log(observation, line) {
                     state.snapshot.dns_observation = observation.clone();
+                    if observation.auto_promoted_policy == Some(DnsPolicy::FullOverride)
+                        && !state.auto_promoted_policy_persisted
+                    {
+                        state.auto_promoted_policy_persisted = true;
+                        if let Some(plan) = state.reconnect_plan.as_mut() {
+                            plan.detail.profile.dns_policy = DnsPolicy::FullOverride;
+                        }
+                        persist_auto_promoted_policy = true;
+                    }
                     let _ = events.send(CoreEvent::DnsObserved(observation.clone()));
                 }
             }
@@ -628,6 +650,18 @@ fn handle_log(
     if let Some(session_id) = disconnect_session {
         let _ = backend.disconnect(session_id);
     }
+
+    if persist_auto_promoted_policy {
+        if let Err(error) =
+            repository.update_profile_dns_policy(profile_id, DnsPolicy::FullOverride)
+        {
+            push_manager_warning(
+                state,
+                events,
+                format!("{AUTO_PROMOTION_PERSIST_FAILED_MESSAGE} {error}"),
+            );
+        }
+    }
 }
 
 enum ExitAction {
@@ -643,10 +677,14 @@ fn handle_exit(
     state: &Arc<Mutex<ManagerState>>,
     events: &broadcast::Sender<CoreEvent>,
     profile_id: &ProfileId,
+    backend: &Arc<dyn VpnBackend>,
     active_session: &ActiveSession,
     code: Option<i32>,
 ) -> ExitAction {
     cleanup_runtime_artifacts(active_session);
+    let reconcile_result = backend.reconcile_dns(ReconcileDnsRequest {
+        runtime_root: paths.runtime_dir.clone(),
+    });
 
     let mut state = state.lock();
     if !session_is_current(&state, active_session) {
@@ -655,12 +693,31 @@ fn handle_exit(
 
     state.active_session = None;
     state.snapshot.pid = None;
+    apply_reconcile_result(&mut state.snapshot, &reconcile_result);
 
     if state.snapshot.state == ConnectionState::Disconnecting {
         state.pending_credentials = None;
         state.reconnect_plan = None;
+        state.auto_promoted_policy_persisted = false;
+        if let Err(error) = reconcile_result {
+            apply_terminal_error(
+                &mut state.snapshot,
+                None,
+                profile_id,
+                dns_restore_error(error),
+            );
+            let _ = events.send(CoreEvent::StateChanged(state.snapshot.clone()));
+            let _ = events.send(CoreEvent::DnsObserved(
+                state.snapshot.dns_observation.clone(),
+            ));
+            return ExitAction::Stop;
+        }
+
         state.snapshot = ConnectionSnapshot::default();
         let _ = events.send(CoreEvent::StateChanged(state.snapshot.clone()));
+        let _ = events.send(CoreEvent::DnsObserved(
+            state.snapshot.dns_observation.clone(),
+        ));
         return ExitAction::Stop;
     }
 
@@ -697,6 +754,10 @@ fn handle_exit(
     apply_terminal_error(&mut state.snapshot, log_file_path, profile_id, error);
     state.pending_credentials = None;
     state.reconnect_plan = None;
+    state.auto_promoted_policy_persisted = false;
+    let _ = events.send(CoreEvent::DnsObserved(
+        state.snapshot.dns_observation.clone(),
+    ));
     let _ = events.send(CoreEvent::StateChanged(state.snapshot.clone()));
     ExitAction::Stop
 }
@@ -940,6 +1001,73 @@ fn process_exit_error(code: Option<i32>, logs: &VecDeque<LogEntry>) -> UserFacin
     }
 }
 
+fn apply_reconcile_result(
+    snapshot: &mut ConnectionSnapshot,
+    reconcile_result: &Result<(), AppError>,
+) {
+    match reconcile_result {
+        Ok(()) => {
+            if snapshot.dns_observation.restore_status.is_some() {
+                snapshot.dns_observation.restore_status = Some(DnsRestoreStatus::Ok);
+            }
+        }
+        Err(_) => {
+            snapshot.dns_observation.restore_status = Some(DnsRestoreStatus::PendingReconcile);
+            if !snapshot
+                .dns_observation
+                .warnings
+                .iter()
+                .any(|warning| warning == DNS_RESTORE_PENDING_MESSAGE)
+            {
+                snapshot
+                    .dns_observation
+                    .warnings
+                    .push(DNS_RESTORE_PENDING_MESSAGE.into());
+            }
+        }
+    }
+}
+
+fn dns_restore_error(error: AppError) -> UserFacingError {
+    UserFacingError {
+        code: "dns_restore_failed".into(),
+        title: "DNS restore needs reconciliation".into(),
+        message:
+            "The VPN disconnected, but OpenWrap could not fully restore your previous system DNS."
+                .into(),
+        suggested_fix: Some(
+            "Relaunch OpenWrap to retry DNS reconciliation, or reconnect and disconnect again after fixing local permissions."
+                .into(),
+        ),
+        details_safe: Some(error.to_string()),
+    }
+}
+
+fn push_manager_warning(
+    state: &Arc<Mutex<ManagerState>>,
+    events: &broadcast::Sender<CoreEvent>,
+    message: String,
+) {
+    let entry = LogEntry {
+        ts: Utc::now(),
+        stream: "app".into(),
+        level: LogLevel::Warn,
+        message,
+        sanitized: false,
+        classification: "dns_warning".into(),
+    };
+
+    {
+        let mut state = state.lock();
+        state.logs.push_back(entry.clone());
+        while state.logs.len() > MAX_LOG_ENTRIES {
+            state.logs.pop_front();
+        }
+    }
+
+    let _ = events.send(CoreEvent::LogLine(entry));
+}
+
 fn apply_terminal_error(
     snapshot: &mut ConnectionSnapshot,
     log_file_path: Option<String>,
@@ -1006,7 +1134,7 @@ mod tests {
     use crate::connection::{ConnectionState, CredentialSubmission, SessionId};
     use crate::dns::DnsPolicy;
     use crate::errors::AppError;
-    use crate::openvpn::{BackendEvent, ConnectRequest, SpawnedSession};
+    use crate::openvpn::{BackendEvent, ConnectRequest, ReconcileDnsRequest, SpawnedSession};
     use crate::profiles::repository::ProfileRepository;
     use crate::profiles::{
         AssetId, AssetKind, AssetOrigin, CredentialMode, ManagedAsset, Profile, ProfileDetail,
@@ -1044,6 +1172,8 @@ mod tests {
         last_selected: Mutex<Option<ProfileId>>,
         touch_count: Mutex<u32>,
         saved_credentials: Mutex<bool>,
+        dns_policy_updates: Mutex<Vec<DnsPolicy>>,
+        dns_policy_update_error: Mutex<Option<String>>,
     }
 
     impl ProfileRepository for FakeRepository {
@@ -1098,9 +1228,16 @@ mod tests {
         fn update_profile_dns_policy(
             &self,
             _profile_id: &ProfileId,
-            _policy: DnsPolicy,
+            policy: DnsPolicy,
         ) -> Result<ProfileDetail, AppError> {
-            Ok(self.detail.clone())
+            if let Some(error) = self.dns_policy_update_error.lock().as_ref() {
+                return Err(AppError::ConnectionState(error.clone()));
+            }
+
+            self.dns_policy_updates.lock().push(policy.clone());
+            let mut detail = self.detail.clone();
+            detail.profile.dns_policy = policy;
+            Ok(detail)
         }
 
         fn set_last_selected_profile(
@@ -1133,6 +1270,8 @@ mod tests {
         queue: VecDeque<QueuedConnect>,
         requests: Vec<ConnectRequest>,
         disconnects: Vec<SessionId>,
+        reconcile_requests: Vec<ReconcileDnsRequest>,
+        reconcile_results: VecDeque<Result<(), AppError>>,
     }
 
     #[derive(Clone, Default)]
@@ -1173,6 +1312,14 @@ mod tests {
         fn disconnect_count(&self) -> usize {
             self.state.lock().disconnects.len()
         }
+
+        fn queue_reconcile_result(&self, result: Result<(), AppError>) {
+            self.state.lock().reconcile_results.push_back(result);
+        }
+
+        fn reconcile_count(&self) -> usize {
+            self.state.lock().reconcile_requests.len()
+        }
     }
 
     impl VpnBackend for FakeBackend {
@@ -1197,6 +1344,12 @@ mod tests {
         fn disconnect(&self, session_id: SessionId) -> Result<(), AppError> {
             self.state.lock().disconnects.push(session_id);
             Ok(())
+        }
+
+        fn reconcile_dns(&self, request: ReconcileDnsRequest) -> Result<(), AppError> {
+            let mut state = self.state.lock();
+            state.reconcile_requests.push(request);
+            state.reconcile_results.pop_front().unwrap_or(Ok(()))
         }
     }
 
@@ -1268,6 +1421,8 @@ mod tests {
             last_selected: Mutex::new(None),
             touch_count: Mutex::new(0),
             saved_credentials: Mutex::new(saved_username.is_some()),
+            dns_policy_updates: Mutex::new(Vec::new()),
+            dns_policy_update_error: Mutex::new(None),
         });
         let backend = FakeBackend::default();
         let secret_store = Arc::new(FakeSecretStore::default());
@@ -1527,6 +1682,71 @@ mod tests {
         assert!(!auth_file.exists());
         assert!(!runtime_dir.exists());
         assert_eq!(manager.snapshot().state, ConnectionState::Idle);
+        assert_eq!(backend.reconcile_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn auto_promotion_persists_full_override_once_per_connection() {
+        let (manager, backend, profile_id, _, repository) =
+            build_manager(CredentialMode::None, None);
+        let session = backend.queue_session(Some(53));
+
+        manager.connect(profile_id.to_string()).await.unwrap();
+
+        session
+            .tx
+            .send(BackendEvent::Stdout(
+                "OPENWRAP_DNS_WARNING: AUTO_PROMOTED_FULL_OVERRIDE".into(),
+            ))
+            .unwrap();
+        session
+            .tx
+            .send(BackendEvent::Stdout(
+                "OPENWRAP_DNS_WARNING: AUTO_PROMOTED_FULL_OVERRIDE".into(),
+            ))
+            .unwrap();
+        tokio::task::yield_now().await;
+
+        assert_eq!(
+            repository.dns_policy_updates.lock().as_slice(),
+            &[DnsPolicy::FullOverride]
+        );
+        assert_eq!(
+            manager.snapshot().dns_observation.auto_promoted_policy,
+            Some(DnsPolicy::FullOverride)
+        );
+
+        session.tx.send(BackendEvent::Exited(Some(0))).unwrap();
+    }
+
+    #[tokio::test]
+    async fn disconnect_reconcile_failure_surfaces_dns_restore_error() {
+        let (manager, backend, profile_id, _, _) = build_manager(CredentialMode::None, None);
+        let session = backend.queue_session(Some(54));
+        backend.queue_reconcile_result(Err(AppError::ConnectionState(
+            "restore verification failed".into(),
+        )));
+
+        manager.connect(profile_id.to_string()).await.unwrap();
+        manager.disconnect().await.unwrap();
+
+        session.tx.send(BackendEvent::Exited(Some(0))).unwrap();
+        tokio::task::yield_now().await;
+
+        let snapshot = manager.snapshot();
+        assert_eq!(snapshot.state, ConnectionState::Error);
+        assert_eq!(
+            snapshot
+                .last_error
+                .as_ref()
+                .map(|error| error.code.as_str()),
+            Some("dns_restore_failed")
+        );
+        assert_eq!(
+            snapshot.dns_observation.restore_status,
+            Some(crate::dns::DnsRestoreStatus::PendingReconcile)
+        );
+        assert_eq!(backend.reconcile_count(), 1);
     }
 
     #[tokio::test(start_paused = true)]

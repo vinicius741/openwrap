@@ -7,6 +7,6 @@ pub mod observer;
 pub use macos::append_launch_config as append_macos_launch_dns_config;
 pub use model::{
     extract_dns_directives, normalize_dns_directive, DnsConfig, DnsEffectiveMode, DnsObservation,
-    DnsPolicy,
+    DnsPolicy, DnsRestoreStatus,
 };
 pub use observer::{DnsObserver, PassiveDnsObserver};

@@ -34,6 +34,7 @@ type AppStore = {
   error: UserFacingError | null
   loadInitial: () => Promise<void>
   selectProfile: (profileId: string) => Promise<void>
+  refreshSelectedProfile: () => Promise<void>
   refreshProfiles: () => Promise<void>
   deleteProfile: (profileId: string) => Promise<void>
   updateSelectedProfileDnsPolicy: (dnsPolicy: 'SplitDnsPreferred' | 'FullOverride' | 'ObserveOnly') => Promise<void>
@@ -116,6 +117,23 @@ export const useAppStore = create<AppStore>((set, get) => ({
         error: null,
       })
       await setLastSelectedProfile(profileId)
+    } catch (error) {
+      set({ error: normalizeCommandError(error) })
+    }
+  },
+
+  refreshSelectedProfile: async () => {
+    const selectedProfileId = get().selectedProfileId
+    if (!selectedProfileId) {
+      return
+    }
+
+    try {
+      const selectedProfile = await getProfile(selectedProfileId)
+      set({
+        selectedProfile,
+        error: null,
+      })
     } catch (error) {
       set({ error: normalizeCommandError(error) })
     }

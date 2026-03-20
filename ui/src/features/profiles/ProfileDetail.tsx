@@ -151,6 +151,9 @@ export function ProfileDetail() {
               <option value="FullOverride">Full override</option>
               <option value="ObserveOnly">Observe only</option>
             </select>
+            <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
+              Full override replaces system DNS while connected and restores the previous DNS settings when you disconnect.
+            </span>
           </label>
         </article>
         <article className="detail-card">

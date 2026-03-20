@@ -10,6 +10,7 @@ const MAX_PENDING_LOG_BATCH = 100
 export function useConnectionEvents() {
   const setConnection = useAppStore((state) => state.setConnection)
   const setDnsObservation = useAppStore((state) => state.setDnsObservation)
+  const refreshSelectedProfile = useAppStore((state) => state.refreshSelectedProfile)
   const appendLogs = useAppStore((state) => state.appendLogs)
   const setCredentialPrompt = useAppStore((state) => state.setCredentialPrompt)
   const pendingLogsRef = useRef<LogEntry[]>([])
@@ -59,6 +60,9 @@ export function useConnectionEvents() {
       }),
       listen<DnsObservation>('connection://dns-observed', (event) => {
         setDnsObservation(event.payload)
+        if (event.payload.auto_promoted_policy === 'FullOverride') {
+          void refreshSelectedProfile()
+        }
       }),
     ])
 
@@ -72,5 +76,5 @@ export function useConnectionEvents() {
         listeners.forEach((listener) => listener())
       })
     }
-  }, [appendLogs, setConnection, setCredentialPrompt, setDnsObservation])
+  }, [appendLogs, refreshSelectedProfile, setConnection, setCredentialPrompt, setDnsObservation])
 }

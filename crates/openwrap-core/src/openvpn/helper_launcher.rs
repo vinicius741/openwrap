@@ -171,12 +171,20 @@ impl VpnBackend for HelperOpenVpnBackend {
             Ok(())
         } else {
             let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-            Err(AppError::OpenVpnLaunch(if stderr.is_empty() {
-                "Privileged DNS reconciliation failed.".into()
-            } else {
-                format!("Privileged DNS reconciliation failed: {stderr}")
-            }))
+            Err(AppError::OpenVpnLaunch(reconcile_dns_error_message(
+                &stderr,
+            )))
         }
+    }
+}
+
+fn reconcile_dns_error_message(stderr: &str) -> String {
+    if stderr.contains("usage: openwrap-helper connect") && !stderr.contains("reconcile-dns") {
+        "Privileged helper is outdated and does not support DNS reconciliation. Rebuild and reinstall openwrap-helper. See docs/helper-setup.md.".into()
+    } else if stderr.is_empty() {
+        "Privileged DNS reconciliation failed.".into()
+    } else {
+        format!("Privileged DNS reconciliation failed: {stderr}")
     }
 }
 
@@ -216,4 +224,25 @@ fn validate_helper_binary(_path: &PathBuf) -> Result<(), AppError> {
     Err(AppError::OpenVpnLaunch(
         "Privileged helper is only supported on macOS.".into(),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::reconcile_dns_error_message;
+
+    #[test]
+    fn maps_outdated_helper_usage_to_actionable_error() {
+        let message = reconcile_dns_error_message("usage: openwrap-helper connect");
+        assert!(message.contains("outdated"));
+        assert!(message.contains("reinstall"));
+    }
+
+    #[test]
+    fn prefixes_other_reconcile_failures() {
+        let message = reconcile_dns_error_message("permission denied");
+        assert_eq!(
+            message,
+            "Privileged DNS reconciliation failed: permission denied"
+        );
+    }
 }

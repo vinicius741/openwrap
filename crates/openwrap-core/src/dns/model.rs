@@ -17,6 +17,14 @@ pub enum DnsPolicy {
     ObserveOnly,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DnsRestoreStatus {
+    Ok,
+    PendingReconcile,
+    RestoreFailed,
+}
+
 impl Default for DnsPolicy {
     fn default() -> Self {
         Self::SplitDnsPreferred
@@ -82,6 +90,8 @@ pub struct DnsObservation {
     pub config_requested: Vec<String>,
     pub runtime_pushed: Vec<String>,
     pub effective_mode: DnsEffectiveMode,
+    pub auto_promoted_policy: Option<DnsPolicy>,
+    pub restore_status: Option<DnsRestoreStatus>,
     pub warnings: Vec<String>,
 }
 
@@ -91,6 +101,8 @@ impl Default for DnsObservation {
             config_requested: Vec::new(),
             runtime_pushed: Vec::new(),
             effective_mode: DnsEffectiveMode::ObserveOnly,
+            auto_promoted_policy: None,
+            restore_status: None,
             warnings: Vec::new(),
         }
     }
@@ -198,6 +210,32 @@ mod tests {
     }
 
     #[test]
+    fn dns_restore_status_serialization() {
+        let statuses = vec![
+            DnsRestoreStatus::Ok,
+            DnsRestoreStatus::PendingReconcile,
+            DnsRestoreStatus::RestoreFailed,
+        ];
+        for status in statuses {
+            let json = serde_json::to_string(&status).unwrap();
+            let roundtrip: DnsRestoreStatus = serde_json::from_str(&json).unwrap();
+            assert_eq!(status, roundtrip);
+        }
+        assert_eq!(
+            serde_json::to_string(&DnsRestoreStatus::Ok).unwrap(),
+            "\"ok\""
+        );
+        assert_eq!(
+            serde_json::to_string(&DnsRestoreStatus::PendingReconcile).unwrap(),
+            "\"pending_reconcile\""
+        );
+        assert_eq!(
+            serde_json::to_string(&DnsRestoreStatus::RestoreFailed).unwrap(),
+            "\"restore_failed\""
+        );
+    }
+
+    #[test]
     fn dns_config_default() {
         let config = DnsConfig::default();
         assert!(config.servers.is_empty());
@@ -278,6 +316,8 @@ mod tests {
         assert!(obs.config_requested.is_empty());
         assert!(obs.runtime_pushed.is_empty());
         assert_eq!(obs.effective_mode, DnsEffectiveMode::ObserveOnly);
+        assert_eq!(obs.auto_promoted_policy, None);
+        assert_eq!(obs.restore_status, None);
         assert!(obs.warnings.is_empty());
     }
 

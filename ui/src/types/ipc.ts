@@ -77,6 +77,8 @@ export interface DnsObservation {
   config_requested: string[]
   runtime_pushed: string[]
   effective_mode: 'ObserveOnly' | 'ScopedResolvers' | 'GlobalOverride'
+  auto_promoted_policy: 'SplitDnsPreferred' | 'FullOverride' | 'ObserveOnly' | null
+  restore_status: 'ok' | 'pending_reconcile' | 'restore_failed' | null
   warnings: string[]
 }
 
