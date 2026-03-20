@@ -1,6 +1,7 @@
 use std::ffi::CStr;
 use std::fs;
 use std::io::{self, Read};
+use std::net::IpAddr;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -453,17 +454,11 @@ fn reconcile_global_override(state_file: &Path) -> Result<(), String> {
     let contents = fs::read_to_string(state_file)
         .map_err(|error| format!("failed to read DNS restore state: {error}"))?;
     let mut errors = Vec::new();
+    let mut remaining_entries = Vec::new();
     for line in contents.lines() {
-        let Some((service, current_dns)) = line.split_once('\t') else {
-            errors.push(format!("malformed restore state line: {line:?}"));
+        let Some((service, current_dns)) = parse_global_override_state_line(line) else {
             continue;
         };
-        if service.is_empty() {
-            errors.push(format!(
-                "restore state entry missing service name: {line:?}"
-            ));
-            continue;
-        }
 
         let desired_dns = if current_dns == "__EMPTY__" {
             Vec::new()
@@ -477,6 +472,7 @@ fn reconcile_global_override(state_file: &Path) -> Result<(), String> {
         match restore_service_dns(service, &desired_dns) {
             Ok(()) => {}
             Err(error) => {
+                remaining_entries.push(line.to_string());
                 errors.push(format!(
                     "failed to restore DNS for service {service}: {error}"
                 ));
@@ -485,6 +481,7 @@ fn reconcile_global_override(state_file: &Path) -> Result<(), String> {
         }
 
         if let Err(error) = verify_service_dns(service, current_dns) {
+            remaining_entries.push(line.to_string());
             errors.push(format!(
                 "DNS verification failed for service {service}: {error}"
             ));
@@ -493,12 +490,44 @@ fn reconcile_global_override(state_file: &Path) -> Result<(), String> {
 
     flush_dns_cache();
 
-    if errors.is_empty() {
+    if remaining_entries.is_empty() {
         let _ = fs::remove_file(state_file);
+    } else {
+        let rewritten = remaining_entries.join("\n") + "\n";
+        fs::write(state_file, rewritten)
+            .map_err(|error| format!("failed to update DNS restore state: {error}"))?;
+    }
+
+    if errors.is_empty() {
         Ok(())
     } else {
         Err(errors.join("; "))
     }
+}
+
+fn parse_global_override_state_line(line: &str) -> Option<(&str, &str)> {
+    let (service, current_dns) = line.split_once('\t')?;
+    if !is_plausible_network_service_name(service) {
+        return None;
+    }
+
+    if current_dns != "__EMPTY__"
+        && current_dns
+            .split_whitespace()
+            .any(|value| value.parse::<IpAddr>().is_err())
+    {
+        return None;
+    }
+
+    Some((service, current_dns))
+}
+
+fn is_plausible_network_service_name(service: &str) -> bool {
+    if service.is_empty() || service.starts_with("OPENWRAP_DNS_") {
+        return false;
+    }
+
+    !service.chars().any(|ch| ch.is_control())
 }
 
 fn reconcile_scoped_resolvers(state_file: &Path, profile_id: &str) -> Result<(), String> {
@@ -780,7 +809,8 @@ mod tests {
 
     use super::{
         cleanup_transient_dns_files, extract_managed_openvpn_config,
-        normalize_networksetup_dns_output, parse_ps_line, validate_config_path,
+        normalize_networksetup_dns_output, parse_global_override_state_line, parse_ps_line,
+        reconcile_global_override, validate_config_path,
     };
 
     #[test]
@@ -886,5 +916,32 @@ mod tests {
         assert!(!profile_dir.join("global.tsv.targets.123").exists());
         assert!(!profile_dir.join("global.tsv.tmp").exists());
         assert!(profile_dir.join("global.tsv").exists());
+    }
+
+    #[test]
+    fn rejects_corrupted_global_restore_state_lines() {
+        assert!(parse_global_override_state_line(
+            "OPENWRAP_DNS_DEBUG: active network devices: en0\t__EMPTY__"
+        )
+        .is_none());
+        assert!(parse_global_override_state_line(
+            "Wi-Fi\tOPENWRAP_DNS_DEBUG: bad dns output"
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn corrupted_global_restore_state_is_pruned() {
+        let temp = tempdir().unwrap();
+        let state_file = temp.path().join("global.tsv");
+        fs::write(
+            &state_file,
+            "OPENWRAP_DNS_DEBUG: active network devices: en0\tOPENWRAP_DNS_DEBUG: not a service\n",
+        )
+        .unwrap();
+
+        reconcile_global_override(&state_file).unwrap();
+
+        assert!(!state_file.exists());
     }
 }

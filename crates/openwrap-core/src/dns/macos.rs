@@ -164,11 +164,11 @@ flush_dns_cache() {{
 }}
 
 log_debug() {{
-  printf '%s\n' "OPENWRAP_DNS_DEBUG: $*"
+  printf '%s\n' "OPENWRAP_DNS_DEBUG: $*" >&2
 }}
 
 log_error() {{
-  printf '%s\n' "OPENWRAP_DNS_ERROR: $*"
+  printf '%s\n' "OPENWRAP_DNS_ERROR: $*" >&2
 }}
 
 read_service_dns() {{
@@ -208,6 +208,8 @@ list_target_services() {{
   service_order_file="${{GLOBAL_STATE_FILE}}.services.$$"
   active_device_file="${{GLOBAL_STATE_FILE}}.devices.$$"
   "$SCUTIL" --nwi 2>/dev/null | /usr/bin/awk '/^[[:space:]]*[[:alnum:]][[:alnum:]]*[[:space:]]*:/ {{ device=$1; gsub(":", "", device); print device }}' > "$active_device_file"
+  active_devices="$(/usr/bin/tr '\n' ' ' < "$active_device_file" | /usr/bin/sed 's/[[:space:]]*$//')"
+  [ -n "$active_devices" ] && log_debug "active network devices: $active_devices"
   "$NETWORKSETUP" -listnetworkserviceorder > "$service_order_file" 2>/dev/null || {{
     /bin/rm -f "$service_order_file" "$active_device_file"
     return 1
@@ -221,7 +223,8 @@ list_target_services() {{
         ;;
       "(Hardware Port:"*)
         device=$(printf '%s\n' "$line" | /usr/bin/sed -n 's/.*Device: \([^)]*\)).*/\1/p')
-        if [ -n "$current_service" ] && [ -n "$device" ] && /usr/bin/grep -Fxq "$device" "$active_devices_file"; then
+        if [ -n "$current_service" ] && [ -n "$device" ] && /usr/bin/grep -Fxq "$device" "$active_device_file"; then
+          log_debug "selected active service '$current_service' on device '$device'"
           printf '%s\n' "$current_service"
         fi
         current_service=""
@@ -248,8 +251,13 @@ ensure_dns_servers_routable() {{
   dns_list="$1"
 
   for dns_server in $dns_list; do
-    route_uses_vpn "$dns_server" && continue
-    echo "OPENWRAP_DNS_WARNING: VPN_DNS_NOT_ROUTED"
+    if route_uses_vpn "$dns_server"; then
+      log_debug "verified VPN route to DNS server '$dns_server'"
+      continue
+    fi
+    route_output=$("$ROUTE" -n get "$dns_server" 2>/dev/null || true)
+    [ -n "$route_output" ] && log_error "DNS server '$dns_server' is not routed through the VPN: $(printf '%s' "$route_output" | /usr/bin/tr '\n' ' ' | /usr/bin/sed 's/[[:space:]]*$//')"
+    printf '%s\n' "OPENWRAP_DNS_WARNING: VPN_DNS_NOT_ROUTED" >&2
     return 1
   done
 }}
@@ -351,7 +359,7 @@ write_resolver() {{
 
   if [ -f "$resolver_path" ]; then
     if ! /usr/bin/grep -q "^$MARKER$" "$resolver_path" || ! /usr/bin/grep -q "^$PROFILE_MARKER$" "$resolver_path"; then
-      echo "OPENWRAP_DNS_WARNING: Skipped VPN DNS for domain '$domain' because /etc/resolver/$domain already exists and is not managed by this OpenWrap profile."
+      printf '%s\n' "OPENWRAP_DNS_WARNING: Skipped VPN DNS for domain '$domain' because /etc/resolver/$domain already exists and is not managed by this OpenWrap profile." >&2
       return
     fi
   fi
@@ -372,6 +380,7 @@ write_resolver() {{
   }} > "$tmp_resolver"
   /bin/mv "$tmp_resolver" "$resolver_path"
   printf '%s\t%s\n' "$domain" "$resolver_path" >> "$tmp_file"
+  log_debug "wrote scoped resolver '$resolver_path' for domain '$domain' using mode '$resolver_mode'"
 }}
 
 dns_servers="$(collect_dns_servers)"
@@ -379,16 +388,19 @@ if [ -z "$dns_servers" ]; then
   /bin/rm -f "$SCOPED_STATE_FILE" "$GLOBAL_STATE_FILE" "$ROUTE_STATE_FILE"
   exit 0
 fi
+log_debug "observed VPN DNS servers: $dns_servers"
 
 match_domains="$(collect_match_domains)"
 search_domains="$(collect_search_domains)"
+log_debug "observed VPN match domains: $match_domains"
+log_debug "observed VPN search domains: $search_domains"
 if [ -z "$(printf '%s%s' "$match_domains" "$search_domains" | /usr/bin/tr -d '[:space:]')" ]; then
   /bin/rm -f "$SCOPED_STATE_FILE"
   log_debug "VPN pushed DNS servers without domains; auto-promoting to full override"
   if ! apply_global_override "$GLOBAL_STATE_FILE" "$ROUTE_STATE_FILE" "$dns_servers"; then
     exit 1
   fi
-  echo "OPENWRAP_DNS_WARNING: AUTO_PROMOTED_FULL_OVERRIDE"
+  printf '%s\n' "OPENWRAP_DNS_WARNING: AUTO_PROMOTED_FULL_OVERRIDE" >&2
   exit 0
 fi
 
@@ -411,6 +423,7 @@ for raw_domain in $search_domains; do
 done
 
 /bin/mv "$tmp_file" "$SCOPED_STATE_FILE"
+log_debug "scoped DNS resolver installation completed"
 flush_dns_cache
 "##,
         scoped_state_file = shell_single_quote(scoped_state_file),
@@ -445,11 +458,11 @@ flush_dns_cache() {{
 }}
 
 log_debug() {{
-  printf '%s\n' "OPENWRAP_DNS_DEBUG: $*"
+  printf '%s\n' "OPENWRAP_DNS_DEBUG: $*" >&2
 }}
 
 log_error() {{
-  printf '%s\n' "OPENWRAP_DNS_ERROR: $*"
+  printf '%s\n' "OPENWRAP_DNS_ERROR: $*" >&2
 }}
 
 read_service_dns() {{
@@ -520,7 +533,7 @@ restore_global_state() {{
     return 0
   fi
 
-  echo "OPENWRAP_DNS_WARNING: RESTORE_PENDING_RECONCILE"
+  printf '%s\n' "OPENWRAP_DNS_WARNING: RESTORE_PENDING_RECONCILE" >&2
   return 1
 }}
 
@@ -546,7 +559,7 @@ remove_scoped_resolvers() {{
     return 0
   fi
 
-  echo "OPENWRAP_DNS_WARNING: RESTORE_FAILED"
+  printf '%s\n' "OPENWRAP_DNS_WARNING: RESTORE_FAILED" >&2
   return 1
 }}
 
@@ -606,6 +619,14 @@ flush_dns_cache() {{
   /usr/bin/killall -HUP mDNSResponder >/dev/null 2>&1 || true
 }}
 
+log_debug() {{
+  printf '%s\n' "OPENWRAP_DNS_DEBUG: $*" >&2
+}}
+
+log_error() {{
+  printf '%s\n' "OPENWRAP_DNS_ERROR: $*" >&2
+}}
+
 read_service_dns() {{
   service="$1"
   current_dns=$("$NETWORKSETUP" -getdnsservers "$service" 2>/dev/null || true)
@@ -643,6 +664,8 @@ list_target_services() {{
   service_order_file="${{STATE_FILE}}.services.$$"
   active_device_file="${{STATE_FILE}}.devices.$$"
   "$SCUTIL" --nwi 2>/dev/null | /usr/bin/awk '/^[[:space:]]*[[:alnum:]][[:alnum:]]*[[:space:]]*:/ {{ device=$1; gsub(":", "", device); print device }}' > "$active_device_file"
+  active_devices="$(/usr/bin/tr '\n' ' ' < "$active_device_file" | /usr/bin/sed 's/[[:space:]]*$//')"
+  [ -n "$active_devices" ] && log_debug "active network devices: $active_devices"
   "$NETWORKSETUP" -listnetworkserviceorder > "$service_order_file" 2>/dev/null || {{
     /bin/rm -f "$service_order_file" "$active_device_file"
     return 1
@@ -656,7 +679,8 @@ list_target_services() {{
         ;;
       "(Hardware Port:"*)
         device=$(printf '%s\n' "$line" | /usr/bin/sed -n 's/.*Device: \([^)]*\)).*/\1/p')
-        if [ -n "$current_service" ] && [ -n "$device" ] && /usr/bin/grep -Fxq "$device" "$active_devices_file"; then
+        if [ -n "$current_service" ] && [ -n "$device" ] && /usr/bin/grep -Fxq "$device" "$active_device_file"; then
+          log_debug "selected active service '$current_service' on device '$device'"
           printf '%s\n' "$current_service"
         fi
         current_service=""
@@ -683,8 +707,13 @@ ensure_dns_servers_routable() {{
   dns_list="$1"
 
   for dns_server in $dns_list; do
-    route_uses_vpn "$dns_server" && continue
-    echo "OPENWRAP_DNS_WARNING: VPN_DNS_NOT_ROUTED"
+    if route_uses_vpn "$dns_server"; then
+      log_debug "verified VPN route to DNS server '$dns_server'"
+      continue
+    fi
+    route_output=$("$ROUTE" -n get "$dns_server" 2>/dev/null || true)
+    [ -n "$route_output" ] && log_error "DNS server '$dns_server' is not routed through the VPN: $(printf '%s' "$route_output" | /usr/bin/tr '\n' ' ' | /usr/bin/sed 's/[[:space:]]*$//')"
+    printf '%s\n' "OPENWRAP_DNS_WARNING: VPN_DNS_NOT_ROUTED" >&2
     return 1
   done
 }}
@@ -709,6 +738,7 @@ if [ -z "$dns_servers" ]; then
   /bin/rm -f "$STATE_FILE" "$ROUTE_STATE_FILE"
   exit 0
 fi
+log_debug "observed VPN DNS servers: $dns_servers"
 
 ensure_dns_servers_routable "$dns_servers" || exit 1
 /bin/mkdir -p "$(/usr/bin/dirname "$STATE_FILE")"
@@ -774,6 +804,7 @@ else
   /bin/rm -f "$tmp_file" "$STATE_FILE"
 fi
 
+log_debug "global DNS override applied successfully"
 flush_dns_cache
 trap - EXIT INT TERM
 cleanup_tmp_files
@@ -863,7 +894,7 @@ fi
 if [ "$failed" -eq 0 ] && [ -f "$STATE_FILE" ]; then
   /bin/rm -f "$STATE_FILE"
 elif [ "$failed" -ne 0 ]; then
-  echo "OPENWRAP_DNS_WARNING: RESTORE_PENDING_RECONCILE"
+  printf '%s\n' "OPENWRAP_DNS_WARNING: RESTORE_PENDING_RECONCILE" >&2
 fi
 flush_dns_cache
 [ "$failed" -eq 0 ]
@@ -953,10 +984,17 @@ mod tests {
             std::fs::read_to_string(cleanup_paths[0].join("openwrap-dns-up.sh")).unwrap();
         assert!(up_script.contains("collect_match_domains()"));
         assert!(up_script.contains("collect_search_domains()"));
+        assert!(up_script.contains("OPENWRAP_DNS_DEBUG: $*\" >&2"));
+        assert!(up_script.contains("OPENWRAP_DNS_ERROR: $*\" >&2"));
+        assert!(up_script.contains("active network devices:"));
+        assert!(up_script.contains("selected active service"));
+        assert!(up_script.contains("observed VPN DNS servers:"));
         assert!(up_script.contains("printf 'search %s\\n' \"$domain\""));
         assert!(up_script.contains("apply_global_override()"));
         assert!(up_script.contains("AUTO_PROMOTED_FULL_OVERRIDE"));
         assert!(up_script.contains("if [ \"$current_dns\" = \"$desired_dns\" ]; then"));
+        assert!(up_script.contains("\"$active_device_file\""));
+        assert!(!up_script.contains("active_devices_file"));
     }
 
     #[test]
@@ -982,9 +1020,17 @@ mod tests {
             std::fs::read_to_string(cleanup_paths[0].join("openwrap-dns-up.sh")).unwrap();
         let down_script =
             std::fs::read_to_string(cleanup_paths[0].join("openwrap-dns-down.sh")).unwrap();
+        assert!(up_script.contains("OPENWRAP_DNS_DEBUG: $*\" >&2"));
+        assert!(up_script.contains("OPENWRAP_DNS_ERROR: $*\" >&2"));
         assert!(up_script.contains("verify_service_dns()"));
         assert!(up_script.contains("rollback_global_state_preserve()"));
+        assert!(up_script.contains("active network devices:"));
+        assert!(up_script.contains("selected active service"));
+        assert!(up_script.contains("observed VPN DNS servers:"));
+        assert!(up_script.contains("global DNS override applied successfully"));
         assert!(up_script.contains("if [ \"$current_dns\" = \"$dns_servers\" ]; then"));
+        assert!(up_script.contains("\"$active_device_file\""));
+        assert!(!up_script.contains("active_devices_file"));
         assert!(down_script.contains("RESTORE_PENDING_RECONCILE"));
     }
 

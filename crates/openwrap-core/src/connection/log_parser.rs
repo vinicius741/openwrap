@@ -28,9 +28,12 @@ pub fn sanitize_log(stream: &str, line: &str) -> LogEntry {
         (LogLevel::Info, "connected")
     } else if line.contains("SIGUSR1") || line.contains("Restart pause") {
         (LogLevel::Warn, "retryable")
-    } else if line.contains("dhcp-option")
-        || line.contains("PUSH_REPLY")
+    } else if line.contains("OPENWRAP_DNS_ERROR:") {
+        (LogLevel::Error, "dns")
+    } else if line.contains("OPENWRAP_DNS_DEBUG:")
         || line.contains("OPENWRAP_DNS_WARNING:")
+        || line.contains("dhcp-option")
+        || line.contains("PUSH_REPLY")
     {
         (LogLevel::Info, "dns")
     } else if let Some((level, classification)) = error_classification(line) {
@@ -56,9 +59,11 @@ pub fn classify_signal(line: &str) -> ParsedLogSignal {
         ParsedLogSignal::AuthFailed
     } else if line.contains("SIGUSR1") || line.contains("Restart pause") {
         ParsedLogSignal::RetryableFailure
-    } else if line.contains("dhcp-option")
-        || line.contains("PUSH_REPLY")
+    } else if line.contains("OPENWRAP_DNS_DEBUG:")
+        || line.contains("OPENWRAP_DNS_ERROR:")
         || line.contains("OPENWRAP_DNS_WARNING:")
+        || line.contains("dhcp-option")
+        || line.contains("PUSH_REPLY")
     {
         ParsedLogSignal::DnsHint
     } else {
@@ -337,6 +342,10 @@ mod tests {
             classify_signal("PUSH_REPLY,dhcp-option DNS 1.1.1.1"),
             ParsedLogSignal::DnsHint
         );
+        assert_eq!(
+            classify_signal("OPENWRAP_DNS_DEBUG: observed VPN DNS servers: 10.0.1.50"),
+            ParsedLogSignal::DnsHint
+        );
     }
 
     #[test]
@@ -347,6 +356,16 @@ mod tests {
         );
         assert_eq!(entry.level, LogLevel::Error);
         assert_eq!(entry.classification, "config_error");
+    }
+
+    #[test]
+    fn classifies_dns_script_errors() {
+        let entry = sanitize_log(
+            "stderr",
+            "OPENWRAP_DNS_ERROR: DNS server '10.0.1.50' is not routed through the VPN",
+        );
+        assert_eq!(entry.level, LogLevel::Error);
+        assert_eq!(entry.classification, "dns");
     }
 
     #[test]

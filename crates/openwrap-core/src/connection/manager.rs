@@ -20,7 +20,9 @@ use crate::connection::{
     ConnectionSnapshot, ConnectionState, CredentialPrompt, CredentialSubmission, LogEntry,
     LogLevel, SessionId,
 };
-use crate::dns::{extract_dns_directives, DnsObserver, DnsPolicy, DnsRestoreStatus, PassiveDnsObserver};
+use crate::dns::{
+    extract_dns_directives, DnsObserver, DnsPolicy, DnsRestoreStatus, PassiveDnsObserver,
+};
 use crate::errors::{AppError, UserFacingError};
 use crate::logging::{SessionOutcome, SharedSessionLogManager};
 use crate::openvpn::{BackendEvent, ConnectRequest, ReconcileDnsRequest};
@@ -110,7 +112,10 @@ impl ConnectionManager {
     ) -> Self {
         let (events, _) = broadcast::channel(256);
         let settings = repository.get_settings().ok();
-        let verbose = settings.as_ref().map(|s| s.verbose_logging).unwrap_or(false);
+        let verbose = settings
+            .as_ref()
+            .map(|s| s.verbose_logging)
+            .unwrap_or(false);
         let session_log = SharedSessionLogManager::new(paths.logs_dir.clone(), verbose);
         Self {
             paths,
@@ -406,7 +411,10 @@ fn start_connect_attempt(
             dns_obs.effective_mode
         ));
         if !dns_obs.config_requested.is_empty() {
-            session_log.log_dns(&format!("DNS config: {}", dns_obs.config_requested.join(", ")));
+            session_log.log_dns(&format!(
+                "DNS config: {}",
+                dns_obs.config_requested.join(", ")
+            ));
         }
         if !dns_obs.warnings.is_empty() {
             session_log.log_dns(&format!("DNS warnings: {}", dns_obs.warnings.join("; ")));
@@ -438,10 +446,7 @@ fn start_connect_attempt(
 
     // Start session logging
     session_log.start_session(&session_id, &profile_id, &profile_name)?;
-    session_log.log_core(&format!(
-        "Connection attempt started (retry={})",
-        is_retry
-    ));
+    session_log.log_core(&format!("Connection attempt started (retry={})", is_retry));
 
     let runtime_dir = match prepare_runtime_dir(&paths, &profile_id, &session_id) {
         Ok(runtime_dir) => runtime_dir,
@@ -539,7 +544,8 @@ fn start_connect_attempt(
                     }
                     task_session_log.log_core(&format!(
                         "OpenVPN process started with PID {}",
-                        pid.map(|p| p.to_string()).unwrap_or_else(|| "unknown".to_string())
+                        pid.map(|p| p.to_string())
+                            .unwrap_or_else(|| "unknown".to_string())
                     ));
                 }
                 BackendEvent::Stdout(line) => handle_log(
@@ -571,10 +577,8 @@ fn start_connect_attempt(
                     &line,
                 ),
                 BackendEvent::Exited(code) => {
-                    task_session_log.log_core(&format!(
-                        "OpenVPN process exited with code {:?}",
-                        code
-                    ));
+                    task_session_log
+                        .log_core(&format!("OpenVPN process exited with code {:?}", code));
                     match handle_exit(
                         &paths,
                         &task_state,
@@ -688,6 +692,9 @@ fn handle_log(
             ParsedLogSignal::DnsHint => {
                 let extracted = extract_dns_directives(line);
                 let changed = dns_observer.update_from_log(observation, line);
+                if is_runtime_dns_diagnostic(line) {
+                    session_log.log_dns(&format!("runtime: {}", line));
+                }
                 if !extracted.is_empty() {
                     session_log.log_dns(&format!(
                         "DNS hint extracted: {} (changed={})",
@@ -764,8 +771,7 @@ fn handle_exit(
     };
     session_log.log_dns(&format!(
         "DNS before reconciliation: effective_mode={:?}, restore_status={:?}",
-        dns_before_reconcile.effective_mode,
-        dns_before_reconcile.restore_status
+        dns_before_reconcile.effective_mode, dns_before_reconcile.restore_status
     ));
 
     let reconcile_result = backend.reconcile_dns(ReconcileDnsRequest {
@@ -1240,6 +1246,12 @@ fn format_dns_observation(obs: &crate::dns::DnsObservation) -> String {
         parts.push(format!("warnings={}", obs.warnings.join(";")));
     }
     format!("DNS: {}", parts.join(", "))
+}
+
+fn is_runtime_dns_diagnostic(line: &str) -> bool {
+    line.contains("OPENWRAP_DNS_DEBUG:")
+        || line.contains("OPENWRAP_DNS_ERROR:")
+        || line.contains("OPENWRAP_DNS_WARNING:")
 }
 
 #[cfg(test)]
