@@ -82,7 +82,7 @@ restore_service_dns() {
 list_target_services() {
   service_order_file="${STATE_FILE}.services.$$"
   active_device_file="${STATE_FILE}.devices.$$"
-  "$SCUTIL" --nwi 2>/dev/null | /usr/bin/awk '/^[[:space:]]*[[:alnum:]][[:alnum]]*[[:space:]]*:/ { device=$1; gsub(":", "", device); print device }' > "$active_device_file"
+  "$SCUTIL" --nwi 2>/dev/null | /usr/bin/awk '/^[[:space:]]*[[:alnum:]][[:alnum:]]*[[:space:]]*:/ { device=$1; gsub(":", "", device); print device }' > "$active_device_file"
   active_devices="$(/usr/bin/tr '\n' ' ' < "$active_device_file" | /usr/bin/sed 's/[[:space:]]*$//')"
   [ -n "$active_devices" ] && log_debug "active network devices: $active_devices"
   "$NETWORKSETUP" -listnetworkserviceorder > "$service_order_file" 2>/dev/null || {
