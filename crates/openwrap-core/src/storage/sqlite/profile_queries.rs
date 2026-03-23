@@ -1,20 +1,21 @@
 use std::path::Path;
 use std::str::FromStr;
 
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use parking_lot::Mutex;
-use rusqlite::{params, Connection, OptionalExtension, Row};
+use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::dns::DnsPolicy;
 use crate::errors::AppError;
-use crate::openvpn::runtime::Settings;
 use crate::profiles::repository::ProfileRepository;
 use crate::profiles::{
-    AssetKind, AssetOrigin, ManagedAsset, Profile, ProfileDetail, ProfileId, ProfileImportResult,
-    ProfileSummary, ValidationAction, ValidationFinding, ValidationSeverity, ValidationStatus,
+    ProfileDetail, ProfileId, ProfileImportResult, ProfileSummary, ValidationFinding,
 };
 
-#[derive(Debug)]
+use super::codec::dns_policy_to_string;
+use super::mappers::{map_asset, map_finding, map_profile, map_profile_summary};
+use super::schema::ensure_column;
+
 pub struct SqliteRepository {
     connection: Mutex<Connection>,
 }
@@ -89,6 +90,10 @@ impl SqliteRepository {
             "TEXT NOT NULL DEFAULT 'SplitDnsPreferred'",
         )?;
         Ok(())
+    }
+
+    pub fn connection(&self) -> &Mutex<Connection> {
+        &self.connection
     }
 }
 
@@ -232,32 +237,6 @@ impl ProfileRepository for SqliteRepository {
         Ok(())
     }
 
-    fn get_settings(&self) -> Result<Settings, AppError> {
-        let connection = self.connection.lock();
-        let value = connection
-            .query_row("SELECT value FROM settings WHERE key = 'app'", [], |row| {
-                row.get::<_, String>(0)
-            })
-            .optional()?;
-
-        match value {
-            Some(value) => serde_json::from_str(&value)
-                .map_err(|error| AppError::Serialization(error.to_string())),
-            None => Ok(Settings::default()),
-        }
-    }
-
-    fn save_settings(&self, settings: &Settings) -> Result<(), AppError> {
-        let value = serde_json::to_string(settings)
-            .map_err(|error| AppError::Serialization(error.to_string()))?;
-        self.connection.lock().execute(
-            "INSERT INTO settings (key, value) VALUES ('app', ?1)
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            params![value],
-        )?;
-        Ok(())
-    }
-
     fn list_validation_findings(
         &self,
         profile_id: &ProfileId,
@@ -285,6 +264,51 @@ impl ProfileRepository for SqliteRepository {
             ],
         )?;
         self.get_profile(profile_id)
+    }
+
+    fn delete_profile(&self, profile_id: &ProfileId) -> Result<(), AppError> {
+        let connection = self.connection.lock();
+        let id_str = profile_id.to_string();
+        connection.execute(
+            "DELETE FROM profile_assets WHERE profile_id = ?1",
+            params![id_str],
+        )?;
+        connection.execute(
+            "DELETE FROM profile_validation_findings WHERE profile_id = ?1",
+            params![id_str],
+        )?;
+        connection.execute(
+            "DELETE FROM connection_history WHERE profile_id = ?1",
+            params![id_str],
+        )?;
+        connection.execute("DELETE FROM profiles WHERE id = ?1", params![id_str])?;
+        Ok(())
+    }
+
+    fn get_settings(&self) -> Result<crate::openvpn::runtime::Settings, AppError> {
+        let connection = self.connection.lock();
+        let value = connection
+            .query_row("SELECT value FROM settings WHERE key = 'app'", [], |row| {
+                row.get::<_, String>(0)
+            })
+            .optional()?;
+
+        match value {
+            Some(value) => serde_json::from_str(&value)
+                .map_err(|error| AppError::Serialization(error.to_string())),
+            None => Ok(crate::openvpn::runtime::Settings::default()),
+        }
+    }
+
+    fn save_settings(&self, settings: &crate::openvpn::runtime::Settings) -> Result<(), AppError> {
+        let value = serde_json::to_string(settings)
+            .map_err(|error| AppError::Serialization(error.to_string()))?;
+        self.connection.lock().execute(
+            "INSERT INTO settings (key, value) VALUES ('app', ?1)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![value],
+        )?;
+        Ok(())
     }
 
     fn set_last_selected_profile(&self, profile_id: Option<&ProfileId>) -> Result<(), AppError> {
@@ -321,183 +345,5 @@ impl ProfileRepository for SqliteRepository {
                 ProfileId::from_str(&value).map_err(|error| AppError::Settings(error.to_string()))
             })
             .transpose()
-    }
-
-    fn delete_profile(&self, profile_id: &ProfileId) -> Result<(), AppError> {
-        let connection = self.connection.lock();
-        let id_str = profile_id.to_string();
-        connection.execute(
-            "DELETE FROM profile_assets WHERE profile_id = ?1",
-            params![id_str],
-        )?;
-        connection.execute(
-            "DELETE FROM profile_validation_findings WHERE profile_id = ?1",
-            params![id_str],
-        )?;
-        connection.execute(
-            "DELETE FROM connection_history WHERE profile_id = ?1",
-            params![id_str],
-        )?;
-        connection.execute("DELETE FROM profiles WHERE id = ?1", params![id_str])?;
-        Ok(())
-    }
-}
-
-fn map_profile_summary(row: &Row<'_>) -> rusqlite::Result<ProfileSummary> {
-    Ok(ProfileSummary {
-        id: ProfileId::from_str(&row.get::<_, String>(0)?).unwrap(),
-        name: row.get(1)?,
-        remote_summary: row.get(2)?,
-        last_used_at: row
-            .get::<_, Option<String>>(3)?
-            .and_then(|value| DateTime::parse_from_rfc3339(&value).ok())
-            .map(|value| value.with_timezone(&Utc)),
-        has_saved_credentials: row.get::<_, i64>(4)? != 0,
-        validation_status: match row.get::<_, String>(5)?.as_str() {
-            "Warning" => ValidationStatus::Warning,
-            "Blocked" => ValidationStatus::Blocked,
-            _ => ValidationStatus::Ok,
-        },
-    })
-}
-
-fn map_profile(row: &Row<'_>) -> rusqlite::Result<Profile> {
-    Ok(Profile {
-        id: ProfileId::from_str(&row.get::<_, String>(0)?).unwrap(),
-        name: row.get(1)?,
-        source_filename: row.get(2)?,
-        managed_dir: row.get::<_, String>(3)?.into(),
-        managed_ovpn_path: row.get::<_, String>(4)?.into(),
-        original_import_path: row.get::<_, String>(5)?.into(),
-        created_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(6)?)
-            .unwrap()
-            .with_timezone(&Utc),
-        updated_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(7)?)
-            .unwrap()
-            .with_timezone(&Utc),
-        dns_intent: serde_json::from_str(&row.get::<_, String>(8)?).unwrap_or_default(),
-        dns_policy: dns_policy_from_string(&row.get::<_, String>(9)?),
-        credential_mode: match row.get::<_, String>(10)?.as_str() {
-            "UserPass" => crate::profiles::CredentialMode::UserPass,
-            _ => crate::profiles::CredentialMode::None,
-        },
-        remote_summary: row.get(11)?,
-        has_saved_credentials: row.get::<_, i64>(12)? != 0,
-        validation_status: match row.get::<_, String>(13)?.as_str() {
-            "Warning" => ValidationStatus::Warning,
-            "Blocked" => ValidationStatus::Blocked,
-            _ => ValidationStatus::Ok,
-        },
-    })
-}
-
-fn map_asset(row: &Row<'_>) -> rusqlite::Result<ManagedAsset> {
-    Ok(ManagedAsset {
-        id: crate::profiles::AssetId::from_str(&row.get::<_, String>(0)?).unwrap(),
-        profile_id: ProfileId::from_str(&row.get::<_, String>(1)?).unwrap(),
-        kind: match row.get::<_, String>(2)?.as_str() {
-            "Ca" => AssetKind::Ca,
-            "Cert" => AssetKind::Cert,
-            "Key" => AssetKind::Key,
-            "Pem" => AssetKind::Pem,
-            "Pkcs12" => AssetKind::Pkcs12,
-            "TlsAuth" => AssetKind::TlsAuth,
-            "TlsCrypt" => AssetKind::TlsCrypt,
-            _ => AssetKind::InlineBlob,
-        },
-        relative_path: row.get(3)?,
-        sha256: row.get(4)?,
-        origin: match row.get::<_, String>(5)?.as_str() {
-            "CopiedFile" => AssetOrigin::CopiedFile,
-            _ => AssetOrigin::ExtractedInline,
-        },
-    })
-}
-
-fn map_finding(row: &Row<'_>) -> rusqlite::Result<ValidationFinding> {
-    Ok(ValidationFinding {
-        directive: row.get(0)?,
-        line: row.get::<_, i64>(1)? as usize,
-        severity: match row.get::<_, String>(2)?.as_str() {
-            "Warn" => ValidationSeverity::Warn,
-            "Error" => ValidationSeverity::Error,
-            _ => ValidationSeverity::Info,
-        },
-        message: row.get(3)?,
-        action: match row.get::<_, String>(4)?.as_str() {
-            "RequireApproval" => ValidationAction::RequireApproval,
-            "Block" => ValidationAction::Block,
-            _ => ValidationAction::Allow,
-        },
-    })
-}
-
-fn ensure_column(
-    connection: &Connection,
-    table: &str,
-    column: &str,
-    definition: &str,
-) -> Result<(), AppError> {
-    let mut statement = connection.prepare(&format!("PRAGMA table_info({table})"))?;
-    let exists = statement
-        .query_map([], |row| row.get::<_, String>(1))?
-        .collect::<Result<Vec<_>, _>>()?
-        .into_iter()
-        .any(|current| current == column);
-
-    if !exists {
-        connection.execute(
-            &format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"),
-            [],
-        )?;
-    }
-
-    Ok(())
-}
-
-fn dns_policy_to_string(policy: &DnsPolicy) -> &'static str {
-    match policy {
-        DnsPolicy::SplitDnsPreferred => "SplitDnsPreferred",
-        DnsPolicy::FullOverride => "FullOverride",
-        DnsPolicy::ObserveOnly => "ObserveOnly",
-    }
-}
-
-fn dns_policy_from_string(value: &str) -> DnsPolicy {
-    match value {
-        "FullOverride" => DnsPolicy::FullOverride,
-        "ObserveOnly" => DnsPolicy::ObserveOnly,
-        _ => DnsPolicy::SplitDnsPreferred,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::fs;
-
-    use crate::profiles::ProfileId;
-    use crate::profiles::ProfileRepository;
-
-    use super::SqliteRepository;
-
-    #[test]
-    fn clearing_last_selected_profile_removes_the_setting_row() {
-        let db_path =
-            std::env::temp_dir().join(format!("openwrap-sqlite-test-{}.db", uuid::Uuid::new_v4()));
-        let repository = SqliteRepository::new(&db_path).unwrap();
-        let profile_id = ProfileId::new();
-
-        repository
-            .set_last_selected_profile(Some(&profile_id))
-            .unwrap();
-        assert_eq!(
-            repository.get_last_selected_profile().unwrap(),
-            Some(profile_id.clone())
-        );
-
-        repository.set_last_selected_profile(None).unwrap();
-        assert_eq!(repository.get_last_selected_profile().unwrap(), None);
-
-        fs::remove_file(db_path).unwrap();
     }
 }

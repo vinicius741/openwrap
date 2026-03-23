@@ -22,10 +22,7 @@ impl BufferedWriter {
     /// If `immediate_flush` is true, every line is flushed immediately (verbose mode).
     /// Otherwise, lines are buffered and flushed every BUFFER_SIZE lines.
     pub fn new(path: PathBuf, immediate_flush: bool) -> Result<Self, AppError> {
-        let file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path)?;
+        let file = OpenOptions::new().create(true).append(true).open(&path)?;
 
         Ok(Self {
             writer: BufWriter::new(file),
