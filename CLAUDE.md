@@ -60,10 +60,10 @@ OpenWrap
 
 1. **ui/** — React + Zustand + TypeScript. Only knows about IPC contracts defined in `ui/src/types/ipc.ts`. Calls Tauri commands via `invokeCommand()` in `ui/src/lib/tauri.ts`.
 
-2. **src-tauri/** — Thin shell exposing Tauri commands (in `commands/`), emitting events (in `events.rs`), and managing tray lifecycle. Uses `AppState` to hold `ConnectionManager` and repositories.
+2. **src-tauri/** — Thin shell exposing Tauri commands (in `commands/`), emitting events (in `events.rs`), and managing tray lifecycle (in `tray/`). Uses `AppState` (in `app_state/`) to hold `ConnectionManager` and repositories.
 
 3. **crates/openwrap-core/** — All business logic including:
-   - `connection/manager.rs` — ConnectionManager orchestrates VPN sessions via state machine
+   - `connection/manager/` — ConnectionManager orchestrating VPN sessions via state machine (split into `connect.rs`, `events.rs`, `state.rs`, `runtime.rs`, `errors.rs`)
    - `connection/state_machine.rs` — State transitions (Idle → Validating → Connecting → Connected, etc.)
    - `profiles/` — Profile import, validation, storage
    - `config/` — OpenVPN config parsing and rewriting
@@ -114,7 +114,12 @@ Frontend listens via `useConnectionEvents()` hook in `ui/src/features/connection
 
 ## Frontend State Management
 
-- **Zustand** (`ui/src/store/appStore.ts`) — Single store for all app state
+- **Zustand** (`ui/src/store/`) — Store split into focused slices and actions
+  - `appStore.ts` — Store assembly only
+  - `createAppStore.ts` — Store creation with all slices
+  - `slices/` — `profileSlice.ts`, `connectionSlice.ts`, `settingsSlice.ts`, `importSlice.ts`
+  - `actions/` — `loadInitial.ts`, `profileActions.ts`, `connectionActions.ts`
+  - `reducers/` — Event handlers for backend events
 - State is updated via store actions that call API functions
 - Events from backend directly update store via `setConnection`, `appendLog`, etc.
 
@@ -141,7 +146,7 @@ Transitions are handled by `state_machine.rs` via `transition(current, intent)` 
 
 ## Data Storage
 
-- **SQLite** (`crates/openwrap-core/src/storage/sqlite.rs`) — Profiles, settings
+- **SQLite** (`crates/openwrap-core/src/storage/sqlite/`) — Profiles, settings (split into `profile_queries.rs`, `mappers.rs`, `codec.rs`, `schema.rs`)
 - **macOS Keychain** (`crates/openwrap-core/src/secrets/keychain.rs`) — Usernames only
 - **Session Logs** (`crates/openwrap-core/src/logging/`) — Connection debugging logs
 - Base directory: `~/Library/Application Support/OpenWrap/`
