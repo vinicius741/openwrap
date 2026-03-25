@@ -4,8 +4,8 @@ use chrono::{DateTime, Utc};
 use rusqlite::Row;
 
 use crate::profiles::{
-    AssetKind, AssetOrigin, ManagedAsset, Profile, ProfileId, ProfileSummary, ValidationAction,
-    ValidationFinding, ValidationSeverity, ValidationStatus,
+    AssetKind, AssetOrigin, CredentialStrategy, ManagedAsset, Profile, ProfileId, ProfileSummary,
+    ValidationAction, ValidationFinding, ValidationSeverity, ValidationStatus,
 };
 
 use super::codec::dns_policy_from_string;
@@ -48,9 +48,13 @@ pub fn map_profile(row: &Row<'_>) -> rusqlite::Result<Profile> {
             "UserPass" => crate::profiles::CredentialMode::UserPass,
             _ => crate::profiles::CredentialMode::None,
         },
-        remote_summary: row.get(11)?,
-        has_saved_credentials: row.get::<_, i64>(12)? != 0,
-        validation_status: match row.get::<_, String>(13)?.as_str() {
+        credential_strategy: match row.get::<_, String>(11)?.as_str() {
+            "PinTotp" => CredentialStrategy::PinTotp,
+            _ => CredentialStrategy::Prompt,
+        },
+        remote_summary: row.get(12)?,
+        has_saved_credentials: row.get::<_, i64>(13)? != 0,
+        validation_status: match row.get::<_, String>(14)?.as_str() {
             "Warning" => ValidationStatus::Warning,
             "Blocked" => ValidationStatus::Blocked,
             _ => ValidationStatus::Ok,

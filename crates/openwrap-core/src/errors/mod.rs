@@ -95,6 +95,20 @@ impl From<&AppError> for UserFacingError {
                 suggested_fix: Some("Review macOS Keychain permissions for OpenWrap.".into()),
                 details_safe: None,
             },
+            AppError::Settings(message) => Self {
+                code: "settings_error".into(),
+                title: "Settings error".into(),
+                message: message.clone(),
+                suggested_fix: None,
+                details_safe: None,
+            },
+            AppError::ConnectionState(message) => Self {
+                code: "connection_error".into(),
+                title: "Connection error".into(),
+                message: message.clone(),
+                suggested_fix: None,
+                details_safe: None,
+            },
             other => Self {
                 code: "internal_error".into(),
                 title: "Unexpected error".into(),
@@ -161,7 +175,7 @@ mod tests {
     fn user_facing_error_from_settings() {
         let error = AppError::Settings("Invalid setting".to_string());
         let user_error = UserFacingError::from(&error);
-        assert_eq!(user_error.code, "internal_error");
+        assert_eq!(user_error.code, "settings_error");
     }
 
     #[test]

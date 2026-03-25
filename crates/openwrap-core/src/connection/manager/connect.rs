@@ -26,7 +26,7 @@ pub async fn submit_credentials(
     manager.submit_credentials(submission).await
 }
 
-pub async fn start_connect_attempt(
+pub fn start_connect_attempt(
     paths: AppPaths,
     repository: Arc<dyn ProfileRepository>,
     backend: Arc<dyn VpnBackend>,
@@ -53,7 +53,10 @@ pub async fn start_connect_attempt(
             state_guard.logs.clear();
             state_guard.auto_promoted_policy_persisted = false;
         }
-        state_guard.snapshot.state = crate::connection::state_machine::transition(state_guard.snapshot.state.clone(), prepare_intent)?;
+        state_guard.snapshot.state = crate::connection::state_machine::transition(
+            state_guard.snapshot.state.clone(),
+            prepare_intent,
+        )?;
         state_guard.snapshot.profile_id = Some(profile_id.clone());
         state_guard.snapshot.substate = None;
         state_guard.snapshot.pid = None;
@@ -82,7 +85,9 @@ pub async fn start_connect_attempt(
         if !dns_obs.warnings.is_empty() {
             session_log.log_dns(&format!("DNS warnings: {}", dns_obs.warnings.join("; ")));
         }
-        let _ = events.send(super::state::CoreEvent::StateChanged(state_guard.snapshot.clone()));
+        let _ = events.send(super::state::CoreEvent::StateChanged(
+            state_guard.snapshot.clone(),
+        ));
         let _ = events.send(super::state::CoreEvent::DnsObserved(
             state_guard.snapshot.dns_observation.clone(),
         ));
@@ -180,15 +185,22 @@ pub async fn start_connect_attempt(
             extra_cleanup_paths,
         };
         state_guard.active_session = Some(active_session.clone());
-        state_guard.snapshot.state = crate::connection::state_machine::transition(state_guard.snapshot.state.clone(), ConnectionIntent::Spawned)?;
+        state_guard.snapshot.state = crate::connection::state_machine::transition(
+            state_guard.snapshot.state.clone(),
+            ConnectionIntent::Spawned,
+        )?;
         state_guard.snapshot.pid = spawned.pid;
         state_guard.snapshot.substate = None;
-        let _ = events.send(super::state::CoreEvent::StateChanged(state_guard.snapshot.clone()));
+        let _ = events.send(super::state::CoreEvent::StateChanged(
+            state_guard.snapshot.clone(),
+        ));
         state_guard.snapshot.state = crate::connection::state_machine::transition(
             state_guard.snapshot.state.clone(),
             ConnectionIntent::ProcessStarted,
         )?;
-        let _ = events.send(super::state::CoreEvent::StateChanged(state_guard.snapshot.clone()));
+        let _ = events.send(super::state::CoreEvent::StateChanged(
+            state_guard.snapshot.clone(),
+        ));
         active_session
     };
 
@@ -208,7 +220,9 @@ pub async fn start_connect_attempt(
                     let mut state = task_state.lock();
                     if session_is_current(&state, &active_session) {
                         state.snapshot.pid = pid;
-                        let _ = task_events.send(super::state::CoreEvent::StateChanged(state.snapshot.clone()));
+                        let _ = task_events.send(super::state::CoreEvent::StateChanged(
+                            state.snapshot.clone(),
+                        ));
                     }
                     task_session_log.log_core(&format!(
                         "OpenVPN process started with PID {}",
@@ -307,5 +321,7 @@ fn set_terminal_error(
     state_guard.active_session = None;
     state_guard.pending_credentials = None;
     state_guard.reconnect_plan = None;
-    let _ = events.send(super::state::CoreEvent::StateChanged(state_guard.snapshot.clone()));
+    let _ = events.send(super::state::CoreEvent::StateChanged(
+        state_guard.snapshot.clone(),
+    ));
 }

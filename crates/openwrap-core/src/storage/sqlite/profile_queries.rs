@@ -9,7 +9,8 @@ use crate::dns::DnsPolicy;
 use crate::errors::AppError;
 use crate::profiles::repository::ProfileRepository;
 use crate::profiles::{
-    ProfileDetail, ProfileId, ProfileImportResult, ProfileSummary, ValidationFinding,
+    CredentialStrategy, ProfileDetail, ProfileId, ProfileImportResult, ProfileSummary,
+    ValidationFinding,
 };
 
 use super::codec::dns_policy_to_string;
@@ -46,6 +47,7 @@ impl SqliteRepository {
                 dns_intent_json TEXT NOT NULL,
                 dns_policy TEXT NOT NULL DEFAULT 'SplitDnsPreferred',
                 credential_mode TEXT NOT NULL,
+                credential_strategy TEXT NOT NULL DEFAULT 'Prompt',
                 remote_summary TEXT NOT NULL,
                 has_saved_credentials INTEGER NOT NULL DEFAULT 0,
                 validation_status TEXT NOT NULL,
@@ -89,6 +91,12 @@ impl SqliteRepository {
             "dns_policy",
             "TEXT NOT NULL DEFAULT 'SplitDnsPreferred'",
         )?;
+        ensure_column(
+            &connection,
+            "profiles",
+            "credential_strategy",
+            "TEXT NOT NULL DEFAULT 'Prompt'",
+        )?;
         Ok(())
     }
 
@@ -103,9 +111,9 @@ impl ProfileRepository for SqliteRepository {
         connection.execute(
             "INSERT OR REPLACE INTO profiles (
                 id, name, source_filename, managed_dir, managed_ovpn_path, original_import_path,
-                created_at, updated_at, dns_intent_json, dns_policy, credential_mode, remote_summary,
-                has_saved_credentials, validation_status, last_used_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, NULL)",
+                created_at, updated_at, dns_intent_json, dns_policy, credential_mode, credential_strategy,
+                remote_summary, has_saved_credentials, validation_status, last_used_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, NULL)",
             params![
                 import.profile.id.to_string(),
                 import.profile.name,
@@ -119,6 +127,7 @@ impl ProfileRepository for SqliteRepository {
                     .map_err(|error| AppError::Serialization(error.to_string()))?,
                 dns_policy_to_string(&import.profile.dns_policy),
                 format!("{:?}", import.profile.credential_mode),
+                format!("{:?}", import.profile.credential_strategy),
                 import.profile.remote_summary,
                 import.profile.has_saved_credentials as i64,
                 format!("{:?}", import.profile.validation_status),
@@ -185,8 +194,8 @@ impl ProfileRepository for SqliteRepository {
         let profile = connection
             .query_row(
                 "SELECT id, name, source_filename, managed_dir, managed_ovpn_path, original_import_path,
-                        created_at, updated_at, dns_intent_json, dns_policy, credential_mode, remote_summary,
-                        has_saved_credentials, validation_status, last_used_at
+                        created_at, updated_at, dns_intent_json, dns_policy, credential_mode, credential_strategy,
+                        remote_summary, has_saved_credentials, validation_status, last_used_at
                  FROM profiles WHERE id = ?1",
                 params![profile_id.to_string()],
                 map_profile,
@@ -235,6 +244,22 @@ impl ProfileRepository for SqliteRepository {
             params![Utc::now().to_rfc3339(), profile_id.to_string()],
         )?;
         Ok(())
+    }
+
+    fn update_profile_credential_strategy(
+        &self,
+        profile_id: &ProfileId,
+        strategy: CredentialStrategy,
+    ) -> Result<ProfileDetail, AppError> {
+        self.connection.lock().execute(
+            "UPDATE profiles SET credential_strategy = ?1, updated_at = ?2 WHERE id = ?3",
+            params![
+                format!("{strategy:?}"),
+                Utc::now().to_rfc3339(),
+                profile_id.to_string()
+            ],
+        )?;
+        self.get_profile(profile_id)
     }
 
     fn list_validation_findings(

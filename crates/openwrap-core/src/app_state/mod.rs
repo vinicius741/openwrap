@@ -13,6 +13,7 @@ pub struct AppPaths {
     pub runtime_dir: PathBuf,
     pub logs_dir: PathBuf,
     pub database_path: PathBuf,
+    pub secrets_database_path: PathBuf,
 }
 
 impl AppPaths {
@@ -23,6 +24,7 @@ impl AppPaths {
             runtime_dir: base_dir.join("runtime"),
             logs_dir: base_dir.join("logs"),
             database_path: base_dir.join("openwrap.sqlite3"),
+            secrets_database_path: base_dir.join("openwrap-secrets.sqlite3"),
             base_dir,
         }
     }
@@ -37,7 +39,11 @@ impl AppPaths {
 
     /// Get the session log directory for a specific session.
     /// Uses the provided datetime for the date folder to ensure consistency.
-    pub fn session_log_dir_at(&self, session_id: &SessionId, at: &chrono::DateTime<chrono::Utc>) -> PathBuf {
+    pub fn session_log_dir_at(
+        &self,
+        session_id: &SessionId,
+        at: &chrono::DateTime<chrono::Utc>,
+    ) -> PathBuf {
         let date = at.format("%Y-%m-%d").to_string();
         self.sessions_logs_dir()
             .join(&date)
@@ -97,6 +103,10 @@ mod tests {
         assert_eq!(paths.runtime_dir, nested_path.join("runtime"));
         assert_eq!(paths.logs_dir, nested_path.join("logs"));
         assert_eq!(paths.database_path, nested_path.join("openwrap.sqlite3"));
+        assert_eq!(
+            paths.secrets_database_path,
+            nested_path.join("openwrap-secrets.sqlite3")
+        );
     }
 
     #[test]
@@ -118,7 +128,9 @@ mod tests {
         // Should contain "logs/sessions/YYYY-MM-DD/session-{id}"
         assert!(session_dir.starts_with(paths.sessions_logs_dir()));
         assert!(session_dir.to_string_lossy().contains("session-"));
-        assert!(session_dir.to_string_lossy().contains(&session_id.to_string()));
+        assert!(session_dir
+            .to_string_lossy()
+            .contains(&session_id.to_string()));
     }
 
     #[test]
@@ -135,6 +147,8 @@ mod tests {
 
         // Should contain "logs/sessions/2024-03-15/session-{id}"
         assert!(session_dir.to_string_lossy().contains("2024-03-15"));
-        assert!(session_dir.to_string_lossy().contains(&session_id.to_string()));
+        assert!(session_dir
+            .to_string_lossy()
+            .contains(&session_id.to_string()));
     }
 }

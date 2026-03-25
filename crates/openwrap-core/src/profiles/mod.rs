@@ -16,7 +16,8 @@ pub use parsed::{
     AssetReference, InlineAsset, ParsedDirective, ParsedProfile, ProfileImportResult,
 };
 pub use profile::{
-    CredentialMode, ImportReport, ImportStatus, Profile, ProfileDetail, ProfileSummary,
+    CredentialMode, CredentialStrategy, ImportReport, ImportStatus, Profile, ProfileDetail,
+    ProfileSummary,
 };
 pub use repository::ProfileRepository;
 pub use runtime::ProfileRuntimeView;

@@ -550,6 +550,40 @@ h4 { font-size: 14px; }
   margin-top: 16px;
 }
 
+.generated-password-card {
+  gap: 18px;
+}
+
+.generated-password-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.generated-password-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.card-description {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.form-actions .action-button {
+  flex: 1;
+}
+
 .credential-form label,
 .settings-field {
   display: flex;

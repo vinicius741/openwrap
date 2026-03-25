@@ -10,8 +10,8 @@ use crate::dns::DnsPolicy;
 use crate::errors::AppError;
 use crate::profiles::repository::ProfileRepository;
 use crate::profiles::{
-    CredentialMode, ImportReport, ImportStatus, Profile, ProfileId, ProfileImportResult,
-    ValidationStatus,
+    CredentialMode, CredentialStrategy, ImportReport, ImportStatus, Profile, ProfileId,
+    ProfileImportResult, ValidationStatus,
 };
 
 use super::validator::{blocked_findings, validate_directives, warning_findings};
@@ -148,6 +148,7 @@ impl ProfileImporter {
             } else {
                 CredentialMode::None
             },
+            credential_strategy: CredentialStrategy::Prompt,
             remote_summary: parsed.remotes.join(", "),
             has_saved_credentials: false,
             validation_status,

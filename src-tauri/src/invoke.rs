@@ -9,6 +9,8 @@ macro_rules! invoke_handlers {
             $crate::commands::profiles::selection::get_last_selected_profile,
             $crate::commands::profiles::selection::set_last_selected_profile,
             $crate::commands::profiles::dns_policy::update_profile_dns_policy,
+            $crate::commands::profiles::generated_password::configure_generated_password_profile,
+            $crate::commands::profiles::generated_password::clear_generated_password_profile,
             $crate::commands::connection::connect,
             $crate::commands::connection::submit_credentials,
             $crate::commands::connection::disconnect,

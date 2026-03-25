@@ -1,4 +1,3 @@
-
 use crate::app_state::AppState;
 use crate::error::CommandError;
 use crate::tray;

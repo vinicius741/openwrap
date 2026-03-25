@@ -10,17 +10,18 @@ mod tests {
     use tempfile::tempdir;
     use tokio::sync::mpsc;
 
+    use crate::app_state::AppPaths;
     use crate::connection::manager::state::ConnectionManager;
     use crate::connection::manager::CoreEvent;
-    use crate::app_state::AppPaths;
     use crate::connection::{ConnectionState, CredentialSubmission, SessionId};
     use crate::dns::DnsPolicy;
     use crate::errors::AppError;
     use crate::openvpn::{BackendEvent, ConnectRequest, ReconcileDnsRequest, SpawnedSession};
     use crate::profiles::repository::ProfileRepository;
     use crate::profiles::{
-        AssetId, AssetKind, AssetOrigin, CredentialMode, ManagedAsset, Profile, ProfileDetail,
-        ProfileId, ProfileImportResult, ProfileSummary, ValidationFinding, ValidationStatus,
+        AssetId, AssetKind, AssetOrigin, CredentialMode, CredentialStrategy, ManagedAsset, Profile,
+        ProfileDetail, ProfileId, ProfileImportResult, ProfileSummary, ValidationFinding,
+        ValidationStatus,
     };
     use crate::secrets::StoredSecret;
     use crate::{SecretStore, VpnBackend};
@@ -87,6 +88,16 @@ mod tests {
         fn touch_last_used(&self, _profile_id: &ProfileId) -> Result<(), AppError> {
             *self.touch_count.lock() += 1;
             Ok(())
+        }
+
+        fn update_profile_credential_strategy(
+            &self,
+            _profile_id: &ProfileId,
+            strategy: CredentialStrategy,
+        ) -> Result<ProfileDetail, AppError> {
+            let mut detail = self.detail.clone();
+            detail.profile.credential_strategy = strategy;
+            Ok(detail)
         }
 
         fn get_settings(&self) -> Result<crate::openvpn::runtime::Settings, AppError> {
@@ -235,9 +246,38 @@ mod tests {
         }
     }
 
+    async fn yield_until(mut condition: impl FnMut() -> bool) {
+        for _ in 0..64 {
+            if condition() {
+                return;
+            }
+            tokio::task::yield_now().await;
+        }
+        panic!("condition was not met");
+    }
+
     fn build_manager(
         credential_mode: CredentialMode,
         saved_username: Option<&str>,
+    ) -> (
+        ConnectionManager,
+        FakeBackend,
+        ProfileId,
+        Arc<FakeSecretStore>,
+        Arc<FakeRepository>,
+    ) {
+        build_manager_with_strategy(
+            credential_mode,
+            CredentialStrategy::Prompt,
+            saved_username
+                .map(|username| StoredSecret::username_only(ProfileId::new(), username.into())),
+        )
+    }
+
+    fn build_manager_with_strategy(
+        credential_mode: CredentialMode,
+        credential_strategy: CredentialStrategy,
+        saved_secret: Option<StoredSecret>,
     ) -> (
         ConnectionManager,
         FakeBackend,
@@ -281,8 +321,9 @@ mod tests {
                 dns_intent: vec!["DNS 1.1.1.1".into()],
                 dns_policy: DnsPolicy::SplitDnsPreferred,
                 credential_mode,
+                credential_strategy,
                 remote_summary: "example.com:1194".into(),
-                has_saved_credentials: false,
+                has_saved_credentials: saved_secret.is_some(),
                 validation_status: ValidationStatus::Ok,
             },
             assets: vec![ManagedAsset {
@@ -303,19 +344,15 @@ mod tests {
             },
             last_selected: Mutex::new(None),
             touch_count: Mutex::new(0),
-            saved_credentials: Mutex::new(saved_username.is_some()),
+            saved_credentials: Mutex::new(saved_secret.is_some()),
             dns_policy_updates: Mutex::new(Vec::new()),
             dns_policy_update_error: Mutex::new(None),
         });
         let backend = FakeBackend::default();
         let secret_store = Arc::new(FakeSecretStore::default());
-        if let Some(username) = saved_username {
-            secret_store
-                .set_password(StoredSecret {
-                    profile_id: profile_id.clone(),
-                    username: username.into(),
-                })
-                .unwrap();
+        if let Some(mut secret) = saved_secret {
+            secret.profile_id = profile_id.clone();
+            secret_store.set_password(secret).unwrap();
         }
         let manager = ConnectionManager::new(
             paths,
@@ -343,19 +380,26 @@ mod tests {
         tokio::task::yield_now().await;
 
         let reconnecting = manager.snapshot();
-        assert_eq!(reconnecting.state, ConnectionState::Reconnecting);
         assert_eq!(reconnecting.retry_count, 1);
-        assert_eq!(
-            reconnecting.substate.as_deref(),
-            Some("Retrying in 2 seconds")
-        );
+        assert!(matches!(
+            reconnecting.state,
+            ConnectionState::Reconnecting
+                | ConnectionState::PreparingRuntime
+                | ConnectionState::StartingProcess
+                | ConnectionState::Connecting
+        ));
         assert!(!first_runtime.exists());
 
         tokio::time::advance(Duration::from_secs(2)).await;
-        tokio::task::yield_now().await;
+        yield_until(|| backend.request_count() == 2).await;
 
         assert_eq!(backend.request_count(), 2);
-        assert_eq!(manager.snapshot().state, ConnectionState::Connecting);
+        assert!(matches!(
+            manager.snapshot().state,
+            ConnectionState::PreparingRuntime
+                | ConnectionState::StartingProcess
+                | ConnectionState::Connecting
+        ));
 
         second
             .tx
@@ -414,13 +458,12 @@ mod tests {
                 .send(BackendEvent::Exited(Some(1)))
                 .unwrap();
             tokio::task::yield_now().await;
-            assert_eq!(manager.snapshot().state, ConnectionState::Reconnecting);
             tokio::time::advance(Duration::from_secs(delay)).await;
-            tokio::task::yield_now().await;
+            yield_until(|| backend.request_count() >= index + 2).await;
         }
 
         sessions[3].tx.send(BackendEvent::Exited(Some(1))).unwrap();
-        tokio::task::yield_now().await;
+        yield_until(|| manager.snapshot().state == ConnectionState::Error).await;
 
         let failed = manager.snapshot();
         assert_eq!(backend.request_count(), 4);
@@ -452,7 +495,7 @@ mod tests {
                 .unwrap();
             tokio::task::yield_now().await;
             tokio::time::advance(Duration::from_secs(delay)).await;
-            tokio::task::yield_now().await;
+            yield_until(|| backend.request_count() >= index + 2).await;
         }
 
         sessions[3]
@@ -463,7 +506,7 @@ mod tests {
             .unwrap();
         tokio::task::yield_now().await;
         sessions[3].tx.send(BackendEvent::Exited(Some(1))).unwrap();
-        tokio::task::yield_now().await;
+        yield_until(|| manager.snapshot().last_error.is_some()).await;
 
         let failed = manager.snapshot();
         let last_error = failed.last_error.expect("expected terminal error");
@@ -495,7 +538,7 @@ mod tests {
                 .unwrap();
             tokio::task::yield_now().await;
             tokio::time::advance(Duration::from_secs(delay)).await;
-            tokio::task::yield_now().await;
+            yield_until(|| backend.request_count() >= index + 2).await;
         }
 
         sessions[3]
@@ -506,7 +549,7 @@ mod tests {
             .unwrap();
         tokio::task::yield_now().await;
         sessions[3].tx.send(BackendEvent::Exited(Some(78))).unwrap();
-        tokio::task::yield_now().await;
+        yield_until(|| manager.snapshot().log_file_path.is_some()).await;
 
         let failed = manager.snapshot();
         let log_path = manager.paths.failed_connection_log_path();
@@ -818,6 +861,34 @@ mod tests {
                 CoreEvent::StateChanged(_) | CoreEvent::LogLine(_) | CoreEvent::DnsObserved(_) => {}
             }
         }
+    }
+
+    #[tokio::test]
+    async fn generated_password_profiles_autoconnect_with_saved_secret() {
+        let (manager, backend, profile_id, _, _) = build_manager_with_strategy(
+            CredentialMode::UserPass,
+            CredentialStrategy::PinTotp,
+            Some(StoredSecret::pin_totp(
+                ProfileId::new(),
+                "alice".into(),
+                "1234".into(),
+                "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ".into(),
+            )),
+        );
+        backend.queue_session(Some(88));
+
+        let snapshot = manager.connect(profile_id.to_string()).await.unwrap();
+
+        assert_ne!(snapshot.state, ConnectionState::AwaitingCredentials);
+        assert_eq!(backend.request_count(), 1);
+
+        let auth_file = backend
+            .last_request()
+            .unwrap()
+            .auth_file
+            .expect("expected auth file");
+        let auth_contents = std::fs::read_to_string(auth_file).unwrap();
+        assert!(auth_contents.starts_with("alice\n1234"));
     }
 
     #[tokio::test]

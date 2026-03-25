@@ -16,6 +16,12 @@ pub enum CredentialMode {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum CredentialStrategy {
+    Prompt,
+    PinTotp,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ImportStatus {
     Imported,
     NeedsApproval,
@@ -70,6 +76,7 @@ pub struct Profile {
     pub dns_intent: Vec<String>,
     pub dns_policy: DnsPolicy,
     pub credential_mode: CredentialMode,
+    pub credential_strategy: CredentialStrategy,
     pub remote_summary: String,
     pub has_saved_credentials: bool,
     pub validation_status: ValidationStatus,
@@ -105,6 +112,16 @@ mod tests {
             let json = serde_json::to_string(&mode).unwrap();
             let roundtrip: CredentialMode = serde_json::from_str(&json).unwrap();
             assert_eq!(mode, roundtrip);
+        }
+    }
+
+    #[test]
+    fn credential_strategy_serialization() {
+        let strategies = vec![CredentialStrategy::Prompt, CredentialStrategy::PinTotp];
+        for strategy in strategies {
+            let json = serde_json::to_string(&strategy).unwrap();
+            let roundtrip: CredentialStrategy = serde_json::from_str(&json).unwrap();
+            assert_eq!(strategy, roundtrip);
         }
     }
 }

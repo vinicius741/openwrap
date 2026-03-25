@@ -12,6 +12,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build.workspace = true
 
 [dependencies]
+chrono.workspace = true
 dirs.workspace = true
 openwrap-core = { path = "../crates/openwrap-core" }
 serde.workspace = true

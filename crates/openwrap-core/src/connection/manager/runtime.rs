@@ -83,7 +83,9 @@ pub fn quote_openvpn_arg(path: &Path) -> String {
         .replace(' ', "\\ ")
 }
 
-pub fn cleanup_runtime_artifacts(active_session: &crate::connection::manager::state::ActiveSession) {
+pub fn cleanup_runtime_artifacts(
+    active_session: &crate::connection::manager::state::ActiveSession,
+) {
     cleanup_auth_file(active_session);
     cleanup_runtime_bridge(active_session);
 }

@@ -8,7 +8,7 @@ use std::sync::Arc;
 use openwrap_core::app_state::AppPaths;
 use openwrap_core::connection::ConnectionManager;
 use openwrap_core::profiles::ProfileImporter;
-use openwrap_core::secrets::KeychainSecretStore;
+use openwrap_core::secrets::{CompositeSecretStore, KeychainSecretStore, LocalSecretStore};
 use openwrap_core::storage::sqlite::SqliteRepository;
 use openwrap_core::{AppError, ProfileRepository, SecretStore};
 
@@ -16,7 +16,7 @@ pub struct AppState {
     pub repository: Arc<SqliteRepository>,
     pub importer: Arc<ProfileImporter>,
     pub connection_manager: Arc<ConnectionManager>,
-    pub secret_store: Arc<KeychainSecretStore>,
+    pub secret_store: Arc<CompositeSecretStore>,
     pub paths: AppPaths,
 }
 
@@ -27,7 +27,10 @@ impl AppState {
 
         let repository = Arc::new(SqliteRepository::new(&paths.database_path)?);
         let importer = Arc::new(ProfileImporter::new(paths.clone(), repository.clone()));
-        let secret_store = Arc::new(KeychainSecretStore::new());
+        let secret_store = Arc::new(CompositeSecretStore::new(
+            KeychainSecretStore::new(),
+            LocalSecretStore::new(&paths.secrets_database_path)?,
+        ));
         let backend = build_backend();
 
         #[cfg(target_os = "macos")]

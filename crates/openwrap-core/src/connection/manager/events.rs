@@ -15,9 +15,14 @@ use crate::openvpn::ReconcileDnsRequest;
 use crate::profiles::ProfileId;
 use crate::{ProfileRepository, VpnBackend};
 
-use super::errors::{apply_reconcile_result, apply_terminal_error, dns_restore_error, persist_failed_connection_log, push_manager_warning, process_exit_error};
+use super::errors::{
+    apply_reconcile_result, apply_terminal_error, dns_restore_error, persist_failed_connection_log,
+    process_exit_error, push_manager_warning,
+};
 use super::runtime::cleanup_runtime_artifacts;
-use super::state::{session_is_current, ActiveSession, ConnectionPlan, ManagerState, MAX_LOG_ENTRIES};
+use super::state::{
+    session_is_current, ActiveSession, ConnectionPlan, ManagerState, MAX_LOG_ENTRIES,
+};
 
 const AUTO_PROMOTION_PERSIST_FAILED_MESSAGE: &str =
     "OpenWrap switched this connection to Full override, but could not save that policy for future connections.";
@@ -130,7 +135,9 @@ pub fn handle_log(
         }
 
         if emit_state_changed {
-            let _ = events.send(super::state::CoreEvent::StateChanged(state_guard.snapshot.clone()));
+            let _ = events.send(super::state::CoreEvent::StateChanged(
+                state_guard.snapshot.clone(),
+            ));
         }
     }
 
@@ -208,7 +215,9 @@ pub fn handle_exit(
                 profile_id,
                 dns_restore_error(error),
             );
-            let _ = events.send(super::state::CoreEvent::StateChanged(state_guard.snapshot.clone()));
+            let _ = events.send(super::state::CoreEvent::StateChanged(
+                state_guard.snapshot.clone(),
+            ));
             let _ = events.send(super::state::CoreEvent::DnsObserved(
                 state_guard.snapshot.dns_observation.clone(),
             ));
@@ -217,7 +226,9 @@ pub fn handle_exit(
         }
 
         state_guard.snapshot = crate::connection::ConnectionSnapshot::default();
-        let _ = events.send(super::state::CoreEvent::StateChanged(state_guard.snapshot.clone()));
+        let _ = events.send(super::state::CoreEvent::StateChanged(
+            state_guard.snapshot.clone(),
+        ));
         let _ = events.send(super::state::CoreEvent::DnsObserved(
             state_guard.snapshot.dns_observation.clone(),
         ));
@@ -235,7 +246,9 @@ pub fn handle_exit(
     {
         state_guard.snapshot.state = ConnectionState::Error;
         state_guard.snapshot.substate = None;
-        let _ = events.send(super::state::CoreEvent::StateChanged(state_guard.snapshot.clone()));
+        let _ = events.send(super::state::CoreEvent::StateChanged(
+            state_guard.snapshot.clone(),
+        ));
         session_log.end_session(SessionOutcome::Failed);
         return ExitAction::Stop;
     }
@@ -247,7 +260,9 @@ pub fn handle_exit(
             state_guard.snapshot.retry_count += 1;
             state_guard.snapshot.substate = Some(format!("Retrying in {delay_seconds} seconds"));
             state_guard.snapshot.last_error = None;
-            let _ = events.send(super::state::CoreEvent::StateChanged(state_guard.snapshot.clone()));
+            let _ = events.send(super::state::CoreEvent::StateChanged(
+                state_guard.snapshot.clone(),
+            ));
             return ExitAction::Retry {
                 delay_seconds,
                 plan,
@@ -264,7 +279,9 @@ pub fn handle_exit(
     let _ = events.send(super::state::CoreEvent::DnsObserved(
         state_guard.snapshot.dns_observation.clone(),
     ));
-    let _ = events.send(super::state::CoreEvent::StateChanged(state_guard.snapshot.clone()));
+    let _ = events.send(super::state::CoreEvent::StateChanged(
+        state_guard.snapshot.clone(),
+    ));
     session_log.end_session(SessionOutcome::Failed);
     ExitAction::Stop
 }

@@ -10,7 +10,7 @@ OpenWrap is a lightweight macOS desktop client for OpenVPN profiles. Built with 
 
 - **Profile Management** — Import, validate, store, and list OpenVPN profiles
 - **macOS Integration** — Native system tray with connection state and profile selection
-- **Secure Storage** — Native macOS Keychain storage for remembered usernames
+- **Secure Storage** — Native macOS Keychain storage for remembered usernames, plus app-local generated-password secrets for opt-in PIN+TOTP profiles
 - **DNS Observation** — Surface DNS from profile intent and OpenVPN runtime pushes
 - **Session Logging** — Persistent logs for debugging connection issues, organized by date
 - **Privileged Helper** — Secure OpenVPN execution via setuid helper wrapper
@@ -89,7 +89,8 @@ The core crate defines traits for secret storage and VPN process launching, keep
 
 ## Security
 
-- Passwords are **never** stored in SQLite, Keychain, or plaintext config files
+- Standard prompt-based profiles store only remembered usernames in Keychain
+- Opt-in generated-password profiles store their local PIN+TOTP secret material in a separate app-local SQLite database under the OpenWrap data directory
 - Imported profiles are treated as untrusted input
 - Unsupported directives are blocked by default
 - Clear failure reports for missing files, path traversal attempts, and unsupported options

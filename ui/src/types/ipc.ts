@@ -31,6 +31,7 @@ export interface Profile {
   dns_intent: string[]
   dns_policy: 'SplitDnsPreferred' | 'FullOverride' | 'ObserveOnly'
   credential_mode: 'None' | 'UserPass'
+  credential_strategy: 'Prompt' | 'PinTotp'
   remote_summary: string
   has_saved_credentials: boolean
   validation_status: ValidationStatus

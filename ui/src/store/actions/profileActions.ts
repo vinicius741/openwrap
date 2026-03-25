@@ -1,4 +1,12 @@
-import { getProfile, deleteProfile, listProfiles, setLastSelectedProfile, updateProfileDnsPolicy } from '../../features/profiles/api'
+import {
+  clearGeneratedPasswordProfile,
+  configureGeneratedPasswordProfile,
+  deleteProfile,
+  getProfile,
+  listProfiles,
+  setLastSelectedProfile,
+  updateProfileDnsPolicy,
+} from '../../features/profiles/api'
 import { normalizeCommandError } from '../../lib/tauri'
 import type { ProfileDetail, ProfileSummary, UserFacingError } from '../../types/ipc'
 
@@ -44,5 +52,31 @@ export async function updateDnsPolicy(
 }
 
 export function updateDnsPolicyError(error: unknown): { error: UserFacingError } {
+  return { error: normalizeCommandError(error) }
+}
+
+export async function configureGeneratedPassword(
+  profileId: string,
+  username: string,
+  pin: string,
+  totpSecret: string,
+): Promise<ProfileDetail> {
+  return configureGeneratedPasswordProfile({
+    profileId,
+    username,
+    pin,
+    totpSecret,
+  })
+}
+
+export function configureGeneratedPasswordError(error: unknown): { error: UserFacingError } {
+  return { error: normalizeCommandError(error) }
+}
+
+export async function clearGeneratedPassword(profileId: string): Promise<ProfileDetail> {
+  return clearGeneratedPasswordProfile(profileId)
+}
+
+export function clearGeneratedPasswordError(error: unknown): { error: UserFacingError } {
   return { error: normalizeCommandError(error) }
 }

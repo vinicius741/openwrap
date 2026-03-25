@@ -29,8 +29,8 @@ pub fn spawn_event_forwarder(app: AppHandle) {
                     let _ = events_app.emit(crate::events::CONNECTION_LOG_LINE, payload);
                 }
                 CoreEvent::CredentialsRequested(payload) => {
-                    let _ = events_app
-                        .emit(crate::events::CONNECTION_CREDENTIALS_REQUESTED, payload);
+                    let _ =
+                        events_app.emit(crate::events::CONNECTION_CREDENTIALS_REQUESTED, payload);
                 }
                 CoreEvent::DnsObserved(payload) => {
                     let _ = events_app.emit(crate::events::CONNECTION_DNS_OBSERVED, payload);

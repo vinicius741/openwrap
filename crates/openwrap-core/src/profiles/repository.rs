@@ -1,7 +1,8 @@
 use crate::dns::DnsPolicy;
 use crate::errors::AppError;
 use crate::profiles::model::{
-    ProfileDetail, ProfileId, ProfileImportResult, ProfileSummary, ValidationFinding,
+    CredentialStrategy, ProfileDetail, ProfileId, ProfileImportResult, ProfileSummary,
+    ValidationFinding,
 };
 
 pub trait ProfileRepository: Send + Sync {
@@ -13,6 +14,11 @@ pub trait ProfileRepository: Send + Sync {
         profile_id: &ProfileId,
         has_saved_credentials: bool,
     ) -> Result<(), AppError>;
+    fn update_profile_credential_strategy(
+        &self,
+        profile_id: &ProfileId,
+        strategy: CredentialStrategy,
+    ) -> Result<ProfileDetail, AppError>;
     fn touch_last_used(&self, profile_id: &ProfileId) -> Result<(), AppError>;
     fn get_settings(&self) -> Result<crate::openvpn::runtime::Settings, AppError>;
     fn save_settings(&self, settings: &crate::openvpn::runtime::Settings) -> Result<(), AppError>;

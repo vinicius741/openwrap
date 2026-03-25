@@ -1,13 +1,14 @@
-use std::collections::VecDeque;
-use std::sync::Arc;
 use chrono::Utc;
 use parking_lot::Mutex;
+use std::collections::VecDeque;
+use std::sync::Arc;
 use tokio::sync::broadcast;
 
 use crate::app_state::AppPaths;
 use crate::connection::{ConnectionSnapshot, ConnectionState, LogEntry, SessionId};
 use crate::logging::SharedSessionLogManager;
 use crate::profiles::{ProfileDetail, ProfileId};
+use crate::secrets::{totp::generate_totp, StoredSecret, StoredSecretKind};
 use crate::{ProfileRepository, SecretStore, VpnBackend};
 
 pub const MAX_LOG_ENTRIES: usize = 500;
@@ -133,7 +134,10 @@ impl ConnectionManager {
         self.session_log.set_verbose(verbose);
     }
 
-    pub async fn connect(&self, profile_id: String) -> Result<ConnectionSnapshot, crate::errors::AppError> {
+    pub async fn connect(
+        &self,
+        profile_id: String,
+    ) -> Result<ConnectionSnapshot, crate::errors::AppError> {
         let profile_id = profile_id
             .parse::<ProfileId>()
             .map_err(|error| crate::errors::AppError::ConnectionState(error.to_string()))?;
@@ -141,13 +145,29 @@ impl ConnectionManager {
         self.repository
             .set_last_selected_profile(Some(&profile_id))?;
 
-        self.transition_snapshot(crate::connection::state_machine::ConnectionIntent::BeginConnect, Some(profile_id.clone()))?;
+        self.transition_snapshot(
+            crate::connection::state_machine::ConnectionIntent::BeginConnect,
+            Some(profile_id.clone()),
+        )?;
 
         if detail.profile.credential_mode == crate::profiles::CredentialMode::UserPass {
-            let saved_username = self
-                .secret_store
-                .get_password(&profile_id)?
-                .map(|secret| secret.username);
+            let stored_secret = self.secret_store.get_password(&profile_id)?;
+
+            if detail.profile.credential_strategy == crate::profiles::CredentialStrategy::PinTotp {
+                let configured = stored_secret.ok_or_else(|| {
+                    crate::errors::AppError::Settings(
+                        "This profile is set to generate its VPN password automatically, but no local generated-password configuration is saved yet.".into(),
+                    )
+                })?;
+                let (username, password) = resolve_generated_password(&configured)?;
+                return self
+                    .start_connect(detail, Some(username), Some(password), false)
+                    .await;
+            }
+
+            let saved_username = stored_secret.and_then(|secret| {
+                (secret.kind == StoredSecretKind::UsernameOnly).then_some(secret.username)
+            });
 
             {
                 let mut state = self.state.lock();
@@ -155,7 +175,10 @@ impl ConnectionManager {
                     profile: detail.clone(),
                 });
             }
-            self.transition_snapshot(crate::connection::state_machine::ConnectionIntent::NeedCredentials, Some(profile_id.clone()))?;
+            self.transition_snapshot(
+                crate::connection::state_machine::ConnectionIntent::NeedCredentials,
+                Some(profile_id.clone()),
+            )?;
             let prompt = crate::connection::CredentialPrompt {
                 profile_id,
                 remember_supported: true,
@@ -174,19 +197,18 @@ impl ConnectionManager {
     ) -> Result<ConnectionSnapshot, crate::errors::AppError> {
         let profile = {
             let mut state = self.state.lock();
-            let pending = state
-                .pending_credentials
-                .take()
-                .ok_or_else(|| crate::errors::AppError::ConnectionState("no pending credential prompt".into()))?;
+            let pending = state.pending_credentials.take().ok_or_else(|| {
+                crate::errors::AppError::ConnectionState("no pending credential prompt".into())
+            })?;
             pending.profile
         };
 
         if submission.remember_in_keychain {
             self.secret_store
-                .set_password(crate::secrets::StoredSecret {
-                    profile_id: submission.profile_id.clone(),
-                    username: submission.username.clone(),
-                })?;
+                .set_password(crate::secrets::StoredSecret::username_only(
+                    submission.profile_id.clone(),
+                    submission.username.clone(),
+                ))?;
             self.repository
                 .update_has_saved_credentials(&submission.profile_id, true)?;
         } else {
@@ -249,7 +271,10 @@ impl ConnectionManager {
         Ok(())
     }
 
-    pub async fn disconnect_if_connected(&self, profile_id: &ProfileId) -> Result<(), crate::errors::AppError> {
+    pub async fn disconnect_if_connected(
+        &self,
+        profile_id: &ProfileId,
+    ) -> Result<(), crate::errors::AppError> {
         let is_connected = {
             let state = self.state.lock();
             state.snapshot.profile_id.as_ref() == Some(profile_id)
@@ -285,7 +310,7 @@ impl ConnectionManager {
             self.session_log.clone(),
             plan,
             is_retry,
-        ).await
+        )
     }
 
     pub(super) fn transition_snapshot(
@@ -294,7 +319,8 @@ impl ConnectionManager {
         profile_id: Option<ProfileId>,
     ) -> Result<(), crate::errors::AppError> {
         let mut state = self.state.lock();
-        state.snapshot.state = crate::connection::state_machine::transition(state.snapshot.state.clone(), intent)?;
+        state.snapshot.state =
+            crate::connection::state_machine::transition(state.snapshot.state.clone(), intent)?;
         state.snapshot.profile_id = profile_id;
         state.snapshot.last_error = None;
         state.snapshot.log_file_path = None;
@@ -327,6 +353,35 @@ impl ConnectionManager {
             state.snapshot.dns_observation.clone(),
         ));
     }
+}
+
+fn resolve_generated_password(
+    secret: &StoredSecret,
+) -> Result<(String, String), crate::errors::AppError> {
+    if secret.kind != StoredSecretKind::PinTotp {
+        return Err(crate::errors::AppError::Settings(
+            "This profile expects a generated VPN password, but the saved local credentials are not in the generated-password format.".into(),
+        ));
+    }
+
+    let pin = secret.pin.as_deref().ok_or_else(|| {
+        crate::errors::AppError::Settings(
+            "The generated-password profile is missing its saved PIN.".into(),
+        )
+    })?;
+    if pin.len() != 4 || !pin.chars().all(|ch| ch.is_ascii_digit()) {
+        return Err(crate::errors::AppError::Settings(
+            "The saved VPN PIN must contain exactly 4 digits.".into(),
+        ));
+    }
+
+    let totp_secret = secret.totp_secret.as_deref().ok_or_else(|| {
+        crate::errors::AppError::Settings(
+            "The generated-password profile is missing its saved TOTP secret.".into(),
+        )
+    })?;
+    let otp = generate_totp(totp_secret, Utc::now())?;
+    Ok((secret.username.clone(), format!("{pin}{otp}")))
 }
 
 impl Drop for ConnectionManager {

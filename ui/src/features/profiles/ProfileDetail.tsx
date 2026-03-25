@@ -7,14 +7,23 @@ import { DeleteProfileDialog } from './components/DeleteProfileDialog'
 import { DnsPolicyCard } from './components/DnsPolicyCard'
 import { ValidationFindingsCard } from './components/ValidationFindingsCard'
 import { ManagedAssetsCard } from './components/ManagedAssetsCard'
+import { GeneratedPasswordCard } from './components/GeneratedPasswordCard'
 import { useDeleteProfile } from './hooks/useDeleteProfile'
 import { useAppStore } from '../../store/appStore'
 
 export function ProfileDetail() {
   const profile = useAppStore((state) => state.selectedProfile)
   const updateSelectedProfileDnsPolicy = useAppStore((state) => state.updateSelectedProfileDnsPolicy)
+  const configureSelectedProfileGeneratedPassword = useAppStore(
+    (state) => state.configureSelectedProfileGeneratedPassword,
+  )
+  const clearSelectedProfileGeneratedPassword = useAppStore(
+    (state) => state.clearSelectedProfileGeneratedPassword,
+  )
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [isUpdatingPolicy, setIsUpdatingPolicy] = useState(false)
+  const [isSavingGeneratedPassword, setIsSavingGeneratedPassword] = useState(false)
+  const [isClearingGeneratedPassword, setIsClearingGeneratedPassword] = useState(false)
   const { isDeleting, error: deleteError, deleteProfile, resetError } = useDeleteProfile()
 
   const closeModal = useCallback(() => {
@@ -44,6 +53,27 @@ export function ProfileDetail() {
     [updateSelectedProfileDnsPolicy],
   )
 
+  const handleGeneratedPasswordSave = useCallback(
+    async (input: { username: string; pin: string; totpSecret: string }) => {
+      setIsSavingGeneratedPassword(true)
+      try {
+        await configureSelectedProfileGeneratedPassword(input)
+      } finally {
+        setIsSavingGeneratedPassword(false)
+      }
+    },
+    [configureSelectedProfileGeneratedPassword],
+  )
+
+  const handleGeneratedPasswordClear = useCallback(async () => {
+    setIsClearingGeneratedPassword(true)
+    try {
+      await clearSelectedProfileGeneratedPassword()
+    } finally {
+      setIsClearingGeneratedPassword(false)
+    }
+  }, [clearSelectedProfileGeneratedPassword])
+
   if (!profile) {
     return <EmptyState title="No profile selected" detail="Import a profile and select it from the sidebar." />
   }
@@ -68,6 +98,13 @@ export function ProfileDetail() {
       <ConnectionPanel />
 
       <section className="detail-grid">
+        <GeneratedPasswordCard
+          profile={profile}
+          isSaving={isSavingGeneratedPassword}
+          isClearing={isClearingGeneratedPassword}
+          onSave={handleGeneratedPasswordSave}
+          onClear={handleGeneratedPasswordClear}
+        />
         <DnsPolicyCard
           currentPolicy={profile.profile.dns_policy}
           isUpdating={isUpdatingPolicy}

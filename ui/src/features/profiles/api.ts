@@ -50,3 +50,18 @@ export async function updateProfileDnsPolicy(
     },
   })
 }
+
+export async function configureGeneratedPasswordProfile(input: {
+  profileId: string
+  username: string
+  pin: string
+  totpSecret: string
+}) {
+  return invokeCommand<ProfileDetail>('configure_generated_password_profile', input)
+}
+
+export async function clearGeneratedPasswordProfile(profileId: string) {
+  return invokeCommand<ProfileDetail>('clear_generated_password_profile', {
+    profileId,
+  })
+}
