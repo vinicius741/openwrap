@@ -1,0 +1,78 @@
+.error-banner,
+.empty-state,
+.sidebar-empty,
+.log-empty {
+  padding: 16px 18px;
+  border-radius: var(--radius-lg);
+  background: var(--error-soft);
+  border: 1px solid rgba(239, 68, 68, 0.15);
+}
+
+.error-detail {
+  color: var(--text);
+  font-family: "SFMono-Regular", "SF Mono", Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.error-banner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.error-banner-copy {
+  min-width: 0;
+}
+
+.error-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.log-file-path {
+  margin: 0;
+  word-break: break-word;
+  font-family: "SFMono-Regular", "SF Mono", Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text);
+}
+
+.error-detail span {
+  color: var(--text-secondary);
+}
+
+.error-text {
+  color: var(--error);
+}
+
+.empty-state,
+.sidebar-empty,
+.log-empty {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px dashed var(--line-strong);
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.app-error-banner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  background: rgba(239, 68, 68, 0.1);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.log-meta,
+.log-stream,
+.error-text {
+  color: var(--text-secondary);
+}

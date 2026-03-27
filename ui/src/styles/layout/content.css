@@ -1,0 +1,10 @@
+.content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  padding: 28px 36px;
+  max-width: 860px;
+  overflow-y: auto;
+}

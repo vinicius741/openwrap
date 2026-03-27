@@ -1,0 +1,53 @@
+.log-viewer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 280px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  margin-top: 8px;
+  padding: 14px;
+  border-radius: var(--radius-lg);
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--text-secondary);
+  border: 1px solid var(--line);
+  contain: content;
+}
+
+.log-viewer::-webkit-scrollbar {
+  width: 8px;
+}
+
+.log-viewer::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.log-viewer::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+
+.log-viewer::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.log-line {
+  display: grid;
+  grid-template-columns: 84px 64px 1fr;
+  gap: 12px;
+  font-family: "JetBrains Mono", "SF Mono", monospace;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.log-info .log-message {
+  color: #e4e4e7;
+}
+
+.log-warn .log-message {
+  color: #fcd34d;
+}
+
+.log-error .log-message {
+  color: #fca5a5;
+}

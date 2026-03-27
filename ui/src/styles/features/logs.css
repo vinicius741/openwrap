@@ -1,0 +1,24 @@
+.log-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.log-file-inline {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.log-file-inline .log-file-path {
+  font-family: "SFMono-Regular", "SF Mono", Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+}
+
+.dns-inline {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}

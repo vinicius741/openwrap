@@ -1,0 +1,121 @@
+.action-button {
+  border: 0;
+  border-radius: var(--radius-md);
+  padding: 10px 16px;
+  font-weight: 500;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.action-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.action-small {
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.action-primary {
+  background: var(--accent);
+  color: #000;
+  font-weight: 600;
+}
+
+.action-primary:not(:disabled):hover {
+  background: var(--accent-hover);
+}
+
+.action-secondary {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  border: 1px solid var(--line);
+}
+
+.action-secondary:not(:disabled):hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--line-strong);
+}
+
+.action-danger {
+  background: var(--error);
+  color: #fff;
+  font-weight: 600;
+}
+
+.action-danger:not(:disabled):hover {
+  background: var(--error-hover);
+}
+
+.action-connect {
+  font-size: 15px;
+}
+
+.button-group {
+  display: flex;
+  gap: 12px;
+}
+
+.button-group button {
+  flex: 1;
+  padding: 14px 20px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.icon-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 6px;
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.icon-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+}
+
+.delete-btn {
+  color: var(--text-secondary);
+  padding: 8px;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  transition: all 0.15s ease;
+}
+
+.delete-btn:hover {
+  color: var(--error);
+  background: var(--error-soft);
+  border-color: rgba(239, 68, 68, 0.2);
+}
+
+.sidebar-header,
+.modal-actions,
+.button-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.form-actions .action-button {
+  flex: 1;
+}

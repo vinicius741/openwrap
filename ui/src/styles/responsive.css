@@ -1,0 +1,17 @@
+@media (max-width: 768px) {
+  .shell-body {
+    flex-direction: column;
+  }
+
+  .sidebar-persistent {
+    width: 100%;
+    min-width: 100%;
+    max-height: 200px;
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .content {
+    padding: 20px;
+  }
+}

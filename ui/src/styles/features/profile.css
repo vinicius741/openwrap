@@ -1,0 +1,134 @@
+.profile-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.profile-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.profile-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.profile-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.02);
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  color: var(--text);
+}
+
+.profile-row:hover {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--line);
+}
+
+.profile-row.is-selected {
+  background: var(--accent-soft);
+  border-color: rgba(34, 197, 94, 0.25);
+}
+
+.profile-name {
+  margin: 0;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.profile-remote,
+.profile-validation,
+.profile-subtitle {
+  margin-top: 24px;
+  color: var(--text-secondary);
+}
+
+/* ── Profile Info (collapsible) ── */
+
+.profile-info-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.profile-info-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  padding: 12px 0;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+
+.profile-info-toggle:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.profile-info-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chevron {
+  transition: transform 0.2s ease;
+  color: var(--text-secondary);
+}
+
+.chevron-open {
+  transform: rotate(180deg);
+}
+
+.profile-info-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 0 0;
+}
+
+.profile-info-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.info-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+}
+
+.info-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line);
+  font-size: 13px;
+}

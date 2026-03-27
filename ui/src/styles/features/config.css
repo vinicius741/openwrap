@@ -1,0 +1,55 @@
+.config-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.config-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.config-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.config-field label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-weight: 500;
+}
+
+.config-hint {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.config-password-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.config-password-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.config-form-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.config-form-row label {
+  font-weight: 500;
+}

@@ -1,0 +1,31 @@
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  padding: 4px 10px;
+  font-weight: 500;
+  font-size: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  text-transform: capitalize;
+  letter-spacing: 0.01em;
+}
+
+.status-connected {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid rgba(34, 197, 94, 0.2);
+}
+
+.status-error {
+  background: var(--error-soft);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.status-reconnecting,
+.status-connecting {
+  background: var(--warn-soft);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.2);
+}

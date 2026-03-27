@@ -1,0 +1,10 @@
+.settings-view {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.settings-detail {
+  margin-top: 24px;
+  color: var(--text-secondary);
+}
