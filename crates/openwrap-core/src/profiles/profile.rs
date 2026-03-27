@@ -87,6 +87,10 @@ pub struct ProfileDetail {
     pub profile: Profile,
     pub assets: Vec<ManagedAsset>,
     pub findings: Vec<ValidationFinding>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub saved_username: Option<String>,
+    #[serde(default)]
+    pub has_saved_pin_totp: bool,
 }
 
 #[cfg(test)]

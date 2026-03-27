@@ -5,6 +5,7 @@ use openwrap_core::profiles::{CredentialStrategy, ProfileDetail, ProfileId, Prof
 use openwrap_core::secrets::StoredSecret;
 use openwrap_core::SecretStore;
 
+use super::enrich_with_saved_credentials;
 use super::parse::parse_profile_id;
 
 #[tauri::command]
@@ -69,6 +70,7 @@ pub fn configure_generated_password_profile(
                 .update_profile_credential_strategy(&profile_id, CredentialStrategy::PinTotp)
                 .map_err(CommandError::from)
         })
+        .map(|detail| enrich_with_saved_credentials(detail, state.secret_store()))
         .or_else(|error| {
             rollback_generated_password_change(
                 state.secret_store(),
@@ -106,6 +108,7 @@ pub fn clear_generated_password_profile(
                 .update_profile_credential_strategy(&profile_id, CredentialStrategy::Prompt)
                 .map_err(CommandError::from)
         })
+        .map(|detail| enrich_with_saved_credentials(detail, state.secret_store()))
         .or_else(|error| {
             rollback_generated_password_change(
                 state.secret_store(),

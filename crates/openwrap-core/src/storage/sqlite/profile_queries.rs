@@ -223,6 +223,8 @@ impl ProfileRepository for SqliteRepository {
             profile,
             assets,
             findings,
+            saved_username: None,
+            has_saved_pin_totp: false,
         })
     }
 

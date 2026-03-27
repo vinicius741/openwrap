@@ -335,6 +335,8 @@ mod tests {
                 origin: AssetOrigin::CopiedFile,
             }],
             findings: vec![],
+            saved_username: None,
+            has_saved_pin_totp: false,
         };
         let repository = Arc::new(FakeRepository {
             detail,

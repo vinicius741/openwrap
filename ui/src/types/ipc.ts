@@ -57,6 +57,8 @@ export interface ProfileDetail {
   profile: Profile
   assets: ManagedAsset[]
   findings: ValidationFinding[]
+  saved_username?: string | null
+  has_saved_pin_totp?: boolean
 }
 
 export interface ImportReport {

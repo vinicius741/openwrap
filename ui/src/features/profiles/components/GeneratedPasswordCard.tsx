@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ProfileDetail } from '../../../types/ipc'
 
+const PIN_MASK = '••••'
+const TOTP_MASK = '••••••••'
+
 interface GeneratedPasswordCardProps {
   profile: ProfileDetail
   isSaving: boolean
@@ -21,14 +24,21 @@ export function GeneratedPasswordCard({
   const [totpSecret, setTotpSecret] = useState('')
 
   useEffect(() => {
-    setUsername('')
-    setPin('')
-    setTotpSecret('')
-  }, [profile.profile.id])
+    if (profile.has_saved_pin_totp) {
+      setUsername(profile.saved_username ?? '')
+      setPin(PIN_MASK)
+      setTotpSecret(TOTP_MASK)
+    } else {
+      setUsername(profile.saved_username ?? '')
+      setPin('')
+      setTotpSecret('')
+    }
+  }, [profile.profile.id, profile.has_saved_pin_totp, profile.saved_username])
 
   const isConfigured = profile.profile.credential_strategy === 'PinTotp'
-  const pinIsValid = /^\d{4}$/.test(pin)
-  const canSave = username.trim().length > 0 && pinIsValid && totpSecret.trim().length > 0
+  const isMasked = pin === PIN_MASK && totpSecret === TOTP_MASK
+  const pinIsValid = pin === PIN_MASK || /^\d{4}$/.test(pin)
+  const canSave = !isMasked && username.trim().length > 0 && pinIsValid && totpSecret.trim().length > 0
   const strategyLabel = useMemo(
     () => (isConfigured ? 'Generated password enabled' : 'Prompt for credentials'),
     [isConfigured],
@@ -85,6 +95,9 @@ export function GeneratedPasswordCard({
               const nextValue = event.target.value.replace(/\D/g, '').slice(0, 4)
               setPin(nextValue)
             }}
+            onFocus={() => {
+              if (pin === PIN_MASK) setPin('')
+            }}
           />
         </label>
         <label>
@@ -95,6 +108,9 @@ export function GeneratedPasswordCard({
             type="password"
             value={totpSecret}
             onChange={(event) => setTotpSecret(event.target.value)}
+            onFocus={() => {
+              if (totpSecret === TOTP_MASK) setTotpSecret('')
+            }}
           />
         </label>
 
