@@ -17,8 +17,8 @@ export function LogPane() {
   }
 
   return (
-    <section className="detail-card" id="connection-logs">
-      <div className="section-heading log-pane-heading">
+    <section className="log-section" id="connection-logs">
+      <div className="section-heading">
         <div>
           <p className="eyebrow">Logs</p>
           <h3>OpenVPN output</h3>
@@ -35,17 +35,17 @@ export function LogPane() {
         </div>
       </div>
       {connection?.log_file_path ? (
-        <div className="log-path-block">
-          <p className="log-path-label">Latest saved failure log</p>
-          <p className="log-file-path">{connection.log_file_path}</p>
-        </div>
+        <p className="log-file-inline">
+          <span className="metadata-label">Saved failure log:</span>{' '}
+          <span className="log-file-path">{connection.log_file_path}</span>
+        </p>
       ) : null}
-      <div className="dns-observation" style={{ marginTop: '12px', fontSize: '13px' }}>
-        <strong>DNS behavior:</strong>{' '}
+      <p className="dns-inline">
+        <strong>DNS:</strong>{' '}
         <span style={{ color: 'var(--text)' }}>
-          {(connection?.dns_observation.config_requested ?? []).join(', ') || 'No DNS directives observed in config'}
+          {(connection?.dns_observation.config_requested ?? []).join(', ') || 'No DNS directives in config'}
         </span>
-      </div>
+      </p>
       <LogViewer logs={logs} />
     </section>
   )

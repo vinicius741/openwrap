@@ -1,8 +1,6 @@
 export function TopBar({ 
-  onOpenProfiles, 
-  onOpenSettings 
+  onOpenSettings
 }: { 
-  onOpenProfiles: () => void
   onOpenSettings: () => void
 }) {
   return (
@@ -16,14 +14,6 @@ export function TopBar({
         <span>OpenWrap</span>
       </div>
       <div className="topbar-actions">
-        <button className="action-button action-secondary" onClick={onOpenProfiles} style={{ padding: '8px 14px', gap: '8px' }}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="3" y1="12" x2="21" y2="12"></line>
-            <line x1="3" y1="6" x2="21" y2="6"></line>
-            <line x1="3" y1="18" x2="21" y2="18"></line>
-          </svg>
-          Profiles
-        </button>
         <button className="icon-btn" onClick={onOpenSettings} aria-label="Settings">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="3"></circle>

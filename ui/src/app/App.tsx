@@ -13,7 +13,6 @@ export function App() {
   const error = useAppStore((state) => state.error)
   const setError = useAppStore((state) => state.setError)
 
-  const [isProfilesOpen, setIsProfilesOpen] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
 
   useConnectionEvents()
@@ -24,17 +23,31 @@ export function App() {
 
   return (
     <div className="shell">
-      <TopBar 
-        onOpenProfiles={() => setIsProfilesOpen(true)}
+      <TopBar
         onOpenSettings={() => setIsSettingsOpen(true)}
       />
-      
-      {isProfilesOpen && (
-        <>
-          <div className="drawer-backdrop" onClick={() => setIsProfilesOpen(false)} />
-          <Sidebar onClose={() => setIsProfilesOpen(false)} />
-        </>
-      )}
+
+      <div className="shell-body">
+        <aside className="sidebar-persistent">
+          <Sidebar />
+        </aside>
+
+        <main className="content">
+          {error ? (
+            <div className="error-banner app-error-banner">
+              <div>
+                <strong>{error.title}</strong>
+                <p>{error.message}</p>
+                {error.suggested_fix ? <p>{error.suggested_fix}</p> : null}
+              </div>
+              <button className="action-button action-secondary" onClick={() => setError(null)} type="button">
+                Dismiss
+              </button>
+            </div>
+          ) : null}
+          <ProfileDetail key={selectedProfileId ?? 'empty'} />
+        </main>
+      </div>
 
       {isSettingsOpen && (
         <>
@@ -55,24 +68,6 @@ export function App() {
           </div>
         </>
       )}
-
-      <main className="content">
-        {error ? (
-          <div className="error-banner app-error-banner">
-            <div>
-              <strong>{error.title}</strong>
-              <p>{error.message}</p>
-              {error.suggested_fix ? <p>{error.suggested_fix}</p> : null}
-            </div>
-            <button className="action-button action-secondary" onClick={() => setError(null)} type="button">
-              Dismiss
-            </button>
-          </div>
-        ) : null}
-        <section className="panel panel-main">
-          <ProfileDetail key={selectedProfileId ?? 'empty'} />
-        </section>
-      </main>
     </div>
   )
 }

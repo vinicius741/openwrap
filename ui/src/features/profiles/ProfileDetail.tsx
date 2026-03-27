@@ -4,10 +4,8 @@ import { ConnectionPanel } from '../connection/ConnectionPanel'
 import { LogPane } from '../logs/LogPane'
 import { ProfileHeader } from './components/ProfileHeader'
 import { DeleteProfileDialog } from './components/DeleteProfileDialog'
-import { DnsPolicyCard } from './components/DnsPolicyCard'
-import { ValidationFindingsCard } from './components/ValidationFindingsCard'
-import { ManagedAssetsCard } from './components/ManagedAssetsCard'
-import { GeneratedPasswordCard } from './components/GeneratedPasswordCard'
+import { ConfigSection } from './components/ConfigSection'
+import { ProfileInfo } from './components/ProfileInfo'
 import { useDeleteProfile } from './hooks/useDeleteProfile'
 import { useAppStore } from '../../store/appStore'
 
@@ -97,24 +95,19 @@ export function ProfileDetail() {
 
       <ConnectionPanel />
 
-      <section className="detail-grid">
-        <GeneratedPasswordCard
-          profile={profile}
-          isSaving={isSavingGeneratedPassword}
-          isClearing={isClearingGeneratedPassword}
-          onSave={handleGeneratedPasswordSave}
-          onClear={handleGeneratedPasswordClear}
-        />
-        <DnsPolicyCard
-          currentPolicy={profile.profile.dns_policy}
-          isUpdating={isUpdatingPolicy}
-          onPolicyChange={handleDnsPolicyChange}
-        />
-        <ValidationFindingsCard findings={profile.findings} />
-        <ManagedAssetsCard assets={profile.assets} />
-      </section>
+      <ConfigSection
+        profile={profile}
+        isSavingPassword={isSavingGeneratedPassword}
+        isClearingPassword={isClearingGeneratedPassword}
+        isUpdatingDns={isUpdatingPolicy}
+        onDnsPolicyChange={handleDnsPolicyChange}
+        onGeneratedPasswordSave={handleGeneratedPasswordSave}
+        onGeneratedPasswordClear={handleGeneratedPasswordClear}
+      />
 
       <LogPane />
+
+      <ProfileInfo findings={profile.findings} assets={profile.assets} />
     </div>
   )
 }

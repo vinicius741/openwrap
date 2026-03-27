@@ -36,15 +36,16 @@ export function ConnectionPanel() {
   }
 
   return (
-    <section className="connection-panel">
+    <section className="connection-hero">
       <ConnectionSummary connection={connection ?? undefined} selectedProfile={selectedProfile ?? undefined} />
 
       <ConnectionControls
         connection={connection ?? undefined}
         onConnect={() => void connectSelected()}
         onDisconnect={() => void disconnect()}
-        metadata={<ConnectionMetadata connection={connection ?? undefined} selectedProfile={selectedProfile ?? undefined} />}
       />
+
+      <ConnectionMetadata connection={connection ?? undefined} selectedProfile={selectedProfile ?? undefined} />
 
       <DnsStatusNotice message={dnsStatusMessage} />
 
