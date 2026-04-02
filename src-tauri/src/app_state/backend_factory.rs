@@ -14,7 +14,7 @@ pub fn build_backend() -> Arc<dyn VpnBackend> {
 }
 
 #[cfg(target_os = "macos")]
-fn resolve_helper_binary() -> std::path::PathBuf {
+pub fn resolve_helper_binary() -> std::path::PathBuf {
     if let Some(path) = std::env::var_os("OPENWRAP_HELPER_PATH") {
         return path.into();
     }

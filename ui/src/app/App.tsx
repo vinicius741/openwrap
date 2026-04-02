@@ -12,6 +12,8 @@ export function App() {
   const selectedProfileId = useAppStore((state) => state.selectedProfileId)
   const error = useAppStore((state) => state.error)
   const setError = useAppStore((state) => state.setError)
+  const helperInstalling = useAppStore((state) => state.helperInstalling)
+  const installHelperAction = useAppStore((state) => state.installHelperAction)
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
 
@@ -40,9 +42,21 @@ export function App() {
                 <p>{error.message}</p>
                 {error.suggested_fix ? <p>{error.suggested_fix}</p> : null}
               </div>
-              <button className="action-button action-secondary" onClick={() => setError(null)} type="button">
-                Dismiss
-              </button>
+              <div className="error-banner-actions">
+                {error.code === 'helper_not_installed' ? (
+                  <button
+                    className="action-button action-primary"
+                    disabled={helperInstalling}
+                    onClick={() => void installHelperAction()}
+                    type="button"
+                  >
+                    {helperInstalling ? 'Installing\u2026' : 'Install helper'}
+                  </button>
+                ) : null}
+                <button className="action-button action-secondary" onClick={() => setError(null)} type="button">
+                  Dismiss
+                </button>
+              </div>
             </div>
           ) : null}
           <ProfileDetail key={selectedProfileId ?? 'empty'} />

@@ -2,6 +2,18 @@
 
 OpenWrap's phase-2 macOS path uses `openwrap-helper` as a minimal privileged wrapper around the OpenVPN community binary.
 
+## Automatic installation (recommended)
+
+When the app detects the helper is not installed (missing root ownership or setuid bit), it will prompt you to install it:
+
+1. Click **Connect** on a profile — if the helper is not installed, an error banner appears with an **Install helper** button.
+2. Click **Install helper** — macOS prompts for your password or Touch ID.
+3. After authentication, the helper is automatically configured with root ownership and the setuid bit.
+
+You can also install from **Settings** — the Privileged Helper section shows the current status and an install button.
+
+## Manual installation (development)
+
 Development setup:
 
 1. Build the helper:

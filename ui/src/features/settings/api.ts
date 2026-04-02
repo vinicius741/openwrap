@@ -1,5 +1,5 @@
 import { invokeCommand } from '../../lib/tauri'
-import type { OpenVpnDetection, Settings } from '../../types/ipc'
+import type { HelperStatus, OpenVpnDetection, Settings } from '../../types/ipc'
 
 export async function getSettings() {
   return invokeCommand<Settings>('get_settings')
@@ -14,4 +14,12 @@ export async function updateSettings(patch: {
 
 export async function detectOpenVpn() {
   return invokeCommand<OpenVpnDetection>('detect_openvpn')
+}
+
+export async function checkHelperStatus() {
+  return invokeCommand<HelperStatus>('check_helper_status')
+}
+
+export async function installHelper() {
+  return invokeCommand<HelperStatus>('install_helper')
 }

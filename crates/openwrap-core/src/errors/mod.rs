@@ -31,6 +31,9 @@ pub enum AppError {
     #[error("openvpn launch failed: {0}")]
     OpenVpnLaunch(String),
 
+    #[error("privileged helper issue: {0}")]
+    HelperIssue(String),
+
     #[error("keychain error: {0}")]
     Keychain(String),
 
@@ -78,6 +81,13 @@ impl From<&AppError> for UserFacingError {
                     "Install OpenVPN via Homebrew or set a custom binary path in Settings.".into(),
                 ),
                 details_safe: None,
+            },
+            AppError::HelperIssue(message) => Self {
+                code: "helper_not_installed".into(),
+                title: "Privileged helper not installed".into(),
+                message: "OpenWrap requires a privileged helper to manage VPN connections.".into(),
+                suggested_fix: Some("Install the helper from Settings or when prompted.".into()),
+                details_safe: Some(message.clone()),
             },
             AppError::OpenVpnLaunch(message) => Self {
                 code: "openvpn_launch_failed".into(),
@@ -153,6 +163,31 @@ mod tests {
         let user_error = UserFacingError::from(&error);
         assert_eq!(user_error.code, "openvpn_launch_failed");
         assert!(user_error.suggested_fix.is_some());
+    }
+
+    #[test]
+    fn user_facing_error_from_openvpn_launch_helper_not_installed() {
+        let error = AppError::HelperIssue(
+            "Privileged helper is not installed with root ownership and setuid.".into(),
+        );
+        let user_error = UserFacingError::from(&error);
+        assert_eq!(user_error.code, "helper_not_installed");
+        assert_eq!(user_error.title, "Privileged helper not installed");
+    }
+
+    #[test]
+    fn user_facing_error_from_openvpn_launch_helper_not_found() {
+        let error = AppError::HelperIssue("Privileged helper binary was not found.".into());
+        let user_error = UserFacingError::from(&error);
+        assert_eq!(user_error.code, "helper_not_installed");
+    }
+
+    #[test]
+    fn user_facing_error_openvpn_not_executable_is_not_helper_issue() {
+        let error = AppError::OpenVpnLaunch("Selected OpenVPN binary is not executable.".into());
+        let user_error = UserFacingError::from(&error);
+        assert_eq!(user_error.code, "openvpn_launch_failed");
+        assert_ne!(user_error.code, "helper_not_installed");
     }
 
     #[test]

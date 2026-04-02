@@ -6,6 +6,9 @@ export function SettingsView() {
   const settings = useAppStore((state) => state.settings)
   const detection = useAppStore((state) => state.detection)
   const saveSettings = useAppStore((state) => state.saveSettings)
+  const helperStatus = useAppStore((state) => state.helperStatus)
+  const helperInstalling = useAppStore((state) => state.helperInstalling)
+  const installHelperAction = useAppStore((state) => state.installHelperAction)
 
   const [overridePath, setOverridePath] = useState('')
   const [verboseLogging, setVerboseLogging] = useState(false)
@@ -52,6 +55,41 @@ export function SettingsView() {
       >
         Save
       </button>
+
+      <div className="settings-detail">
+        <h4>Privileged helper</h4>
+        <ul className="asset-list">
+          <li>
+            <strong>Status</strong>
+            <span>
+              {helperStatus?.installed ? (
+                <span className="helper-status helper-status-ok">Installed</span>
+              ) : (
+                <span className="helper-status helper-status-missing">Not installed</span>
+              )}
+            </span>
+          </li>
+          <li>
+            <strong>Path</strong>
+            <span className="helper-path">{helperStatus?.helperPath ?? '—'}</span>
+          </li>
+          {helperStatus?.reason ? (
+            <li>
+              <strong>Details</strong>
+              <span className="helper-reason">{helperStatus.reason}</span>
+            </li>
+          ) : null}
+        </ul>
+        <button
+          className="action-button action-primary"
+          disabled={helperInstalling || helperStatus?.installed}
+          onClick={() => void installHelperAction()}
+          type="button"
+        >
+          {helperInstalling ? 'Installing\u2026' : helperStatus?.installed ? 'Installed' : 'Install helper'}
+        </button>
+        <p className="settings-hint">macOS will prompt for your password or Touch ID to authorize installation.</p>
+      </div>
 
       <div className="settings-detail">
         <h4>Detected binaries</h4>

@@ -1,4 +1,4 @@
-mod backend_factory;
+pub mod backend_factory;
 mod startup;
 
 pub use backend_factory::build_backend;

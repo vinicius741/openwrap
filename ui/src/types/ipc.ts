@@ -140,3 +140,9 @@ export interface SessionSummary {
   outcome: SessionOutcome
   log_dir: string
 }
+
+export interface HelperStatus {
+  helperPath: string
+  installed: boolean
+  reason: string | null
+}

@@ -8,3 +8,32 @@
   margin-top: 24px;
   color: var(--text-secondary);
 }
+
+.helper-status {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.helper-status-ok {
+  background: var(--success-bg, #e6f9e6);
+  color: var(--success-text, #1a7a1a);
+}
+
+.helper-status-missing {
+  background: var(--error-bg, #fde8e8);
+  color: var(--error-text, #c42b2b);
+}
+
+.helper-path {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.helper-reason {
+  color: var(--text-secondary);
+  font-size: 12px;
+}

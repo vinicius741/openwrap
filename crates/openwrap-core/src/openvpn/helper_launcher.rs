@@ -190,10 +190,10 @@ fn reconcile_dns_error_message(stderr: &str) -> String {
 
 fn map_spawn_error(error: std::io::Error) -> AppError {
     match error.kind() {
-        ErrorKind::NotFound => AppError::OpenVpnLaunch(
+        ErrorKind::NotFound => AppError::HelperIssue(
             "Privileged helper binary was not found. See docs/helper-setup.md.".into(),
         ),
-        ErrorKind::PermissionDenied => AppError::OpenVpnLaunch(
+        ErrorKind::PermissionDenied => AppError::HelperIssue(
             "Privileged helper is not executable. See docs/helper-setup.md.".into(),
         ),
         _ => AppError::OpenVpnLaunch(error.to_string()),
@@ -213,7 +213,7 @@ fn validate_helper_binary(path: &PathBuf) -> Result<(), AppError> {
     if owner_is_root && setuid {
         Ok(())
     } else {
-        Err(AppError::OpenVpnLaunch(
+        Err(AppError::HelperIssue(
             "Privileged helper is not installed with root ownership and setuid. See docs/helper-setup.md.".into(),
         ))
     }
@@ -221,7 +221,7 @@ fn validate_helper_binary(path: &PathBuf) -> Result<(), AppError> {
 
 #[cfg(not(unix))]
 fn validate_helper_binary(_path: &PathBuf) -> Result<(), AppError> {
-    Err(AppError::OpenVpnLaunch(
+    Err(AppError::HelperIssue(
         "Privileged helper is only supported on macOS.".into(),
     ))
 }

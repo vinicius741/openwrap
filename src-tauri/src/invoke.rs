@@ -21,6 +21,8 @@ macro_rules! invoke_handlers {
             $crate::commands::settings::update_settings,
             $crate::commands::settings::detect_openvpn,
             $crate::commands::settings::reveal_profile_in_finder,
+            $crate::commands::settings::check_helper_status,
+            $crate::commands::settings::install_helper,
             $crate::commands::logs::reveal_logs_folder,
             $crate::commands::logs::get_recent_sessions,
             $crate::commands::logs::cleanup_old_logs,
