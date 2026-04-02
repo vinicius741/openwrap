@@ -34,7 +34,9 @@ impl AppState {
         let backend = build_backend();
 
         #[cfg(target_os = "macos")]
-        startup::reconcile_dns(&backend, &paths)?;
+        if let Err(error) = startup::reconcile_dns(&backend, &paths) {
+            eprintln!("Warning: DNS reconciliation failed (continuing anyway): {error}");
+        }
 
         let connection_manager = Arc::new(ConnectionManager::new(
             paths.clone(),
