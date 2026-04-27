@@ -38,7 +38,7 @@ pub fn attach_tray_icon(
 ) -> tauri::Result<tauri::tray::TrayIcon> {
     TrayIconBuilder::with_id(TRAY_ID)
         .icon(include_image!("icons/32x32.png"))
-        .icon_as_template(true)
+        .icon_as_template(false)
         .menu(menu)
         .show_menu_on_left_click(true)
         .on_menu_event(|app, event| {

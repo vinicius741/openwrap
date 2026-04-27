@@ -6,11 +6,7 @@ export function TopBar({
   return (
     <header className="topbar">
       <div className="topbar-brand">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
-          <path d="M2 17l10 5 10-5"></path>
-          <path d="M2 12l10 5 10-5"></path>
-        </svg>
+        <img className="topbar-logo" src="/logo.png" alt="" aria-hidden="true" />
         <span>OpenWrap</span>
       </div>
       <div className="topbar-actions">

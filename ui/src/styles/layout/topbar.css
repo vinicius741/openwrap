@@ -20,6 +20,13 @@
   font-size: 15px;
 }
 
+.topbar-logo {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  flex: 0 0 auto;
+}
+
 .topbar-actions {
   display: flex;
   align-items: center;
