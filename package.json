@@ -10,8 +10,8 @@
     "dev": "npm run dev --workspace ui",
     "build": "npm run build --workspace ui",
     "tauri:dev": "cargo tauri dev",
+    "tauri:build": "cargo tauri build --bundles app",
     "cargo:test": "cargo test -p openwrap-core",
     "check": "npm run build --workspace ui && cargo test -p openwrap-core"
   }
 }
-

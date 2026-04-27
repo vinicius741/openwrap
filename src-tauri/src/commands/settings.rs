@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use serde::{Deserialize, Serialize};
+use tauri::Manager;
 
 use crate::app_state::AppState;
 use crate::error::CommandError;
@@ -75,24 +76,35 @@ pub fn reveal_profile_in_finder(
 #[serde(rename_all = "camelCase")]
 pub struct HelperStatus {
     pub helper_path: String,
+    pub bundled_helper_path: Option<String>,
     pub installed: bool,
     pub reason: Option<String>,
 }
 
 #[tauri::command]
-pub fn check_helper_status() -> HelperStatus {
-    use crate::app_state::backend_factory::resolve_helper_binary;
-
-    let helper_path = resolve_helper_binary();
-    let path_str = helper_path.display().to_string();
+pub fn check_helper_status(app: tauri::AppHandle) -> HelperStatus {
+    let helper_path = runtime_helper_path();
+    let bundled_helper_path = bundled_helper_path(&app);
+    let bundled_helper_path_str = bundled_helper_path
+        .as_ref()
+        .map(|path| path.display().to_string());
 
     if !helper_path.exists() {
+        let reason = if bundled_helper_path
+            .as_ref()
+            .is_some_and(|path| path.exists())
+        {
+            "Privileged helper is not installed yet. Install it from Settings or when prompted."
+                .into()
+        } else {
+            "Privileged helper is not installed and the bundled helper was not found. Rebuild the app with `npm run tauri:build`."
+                .into()
+        };
         return HelperStatus {
-            helper_path: path_str,
+            helper_path: helper_path.display().to_string(),
+            bundled_helper_path: bundled_helper_path_str,
             installed: false,
-            reason: Some(
-                "Helper binary not found. Build it with: cargo build -p openwrap-helper".into(),
-            ),
+            reason: Some(reason),
         };
     }
 
@@ -105,7 +117,8 @@ pub fn check_helper_status() -> HelperStatus {
                 let setuid = (metadata.permissions().mode() & 0o4000) != 0;
                 if owner_is_root && setuid {
                     HelperStatus {
-                        helper_path: path_str,
+                        helper_path: helper_path.display().to_string(),
+                        bundled_helper_path: bundled_helper_path_str,
                         installed: true,
                         reason: None,
                     }
@@ -118,14 +131,16 @@ pub fn check_helper_status() -> HelperStatus {
                         reasons.push("setuid bit not set");
                     }
                     HelperStatus {
-                        helper_path: path_str,
+                        helper_path: helper_path.display().to_string(),
+                        bundled_helper_path: bundled_helper_path_str,
                         installed: false,
                         reason: Some(format!("Helper exists but is {}", reasons.join(" and "))),
                     }
                 }
             }
             Err(err) => HelperStatus {
-                helper_path: path_str,
+                helper_path: helper_path.display().to_string(),
+                bundled_helper_path: bundled_helper_path_str,
                 installed: false,
                 reason: Some(format!("Cannot read helper metadata: {err}")),
             },
@@ -135,7 +150,8 @@ pub fn check_helper_status() -> HelperStatus {
     #[cfg(not(unix))]
     {
         HelperStatus {
-            helper_path: path_str,
+            helper_path: helper_path.display().to_string(),
+            bundled_helper_path: bundled_helper_path_str,
             installed: false,
             reason: Some("Privileged helper is only supported on macOS.".into()),
         }
@@ -143,20 +159,7 @@ pub fn check_helper_status() -> HelperStatus {
 }
 
 #[tauri::command]
-pub fn install_helper() -> Result<HelperStatus, CommandError> {
-    use crate::app_state::backend_factory::resolve_helper_binary;
-
-    let helper_path = resolve_helper_binary();
-    let path_str = helper_path.display().to_string();
-
-    if !helper_path.exists() {
-        return Err(CommandError::from(openwrap_core::AppError::Settings(
-            format!(
-                "Helper binary not found at {path_str}. Build it first with: cargo build -p openwrap-helper"
-            ),
-        )));
-    }
-
+pub fn install_helper(app: tauri::AppHandle) -> Result<HelperStatus, CommandError> {
     #[cfg(not(target_os = "macos"))]
     {
         return Err(CommandError::from(openwrap_core::AppError::Settings(
@@ -166,11 +169,26 @@ pub fn install_helper() -> Result<HelperStatus, CommandError> {
 
     #[cfg(target_os = "macos")]
     {
-        let escaped = path_str.replace('\'', "'\\''");
+        let install_plan = helper_install_plan(&app)?;
+        let command = match install_plan.source {
+            Some(source) => format!(
+                "mkdir -p {} && cp -f {} {} && chown root:wheel {} && chmod 4755 {}",
+                shell_quote("/Library/PrivilegedHelperTools"),
+                shell_quote_path(&source),
+                shell_quote_path(&install_plan.target),
+                shell_quote_path(&install_plan.target),
+                shell_quote_path(&install_plan.target),
+            ),
+            None => format!(
+                "chown root:wheel {} && chmod 4755 {}",
+                shell_quote_path(&install_plan.target),
+                shell_quote_path(&install_plan.target),
+            ),
+        };
         let script = format!(
-        "do shell script \"chown root:wheel '{}' && chmod 4755 '{}'\" with administrator privileges",
-        escaped, escaped
-    );
+            "do shell script \"{}\" with administrator privileges",
+            applescript_string(&command)
+        );
 
         let output = Command::new("/usr/bin/osascript")
             .arg("-e")
@@ -196,6 +214,80 @@ pub fn install_helper() -> Result<HelperStatus, CommandError> {
             )));
         }
 
-        Ok(check_helper_status())
+        Ok(check_helper_status(app))
     } // cfg(target_os = "macos")
+}
+
+struct HelperInstallPlan {
+    source: Option<PathBuf>,
+    target: PathBuf,
+}
+
+fn runtime_helper_path() -> PathBuf {
+    #[cfg(target_os = "macos")]
+    {
+        crate::app_state::backend_factory::resolve_helper_binary()
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        PathBuf::from(crate::app_state::backend_factory::INSTALLED_HELPER_PATH)
+    }
+}
+
+fn bundled_helper_path(app: &tauri::AppHandle) -> Option<PathBuf> {
+    app.path()
+        .resolve(
+            crate::app_state::backend_factory::BUNDLED_HELPER_NAME,
+            tauri::path::BaseDirectory::Resource,
+        )
+        .ok()
+}
+
+fn helper_install_plan(app: &tauri::AppHandle) -> Result<HelperInstallPlan, CommandError> {
+    if let Some(path) = std::env::var_os("OPENWRAP_HELPER_PATH").map(PathBuf::from) {
+        if !path.exists() {
+            return Err(CommandError::from(openwrap_core::AppError::Settings(
+                format!(
+                    "Helper binary not found at {}. Build it first with: cargo build -p openwrap-helper",
+                    path.display()
+                ),
+            )));
+        }
+        return Ok(HelperInstallPlan {
+            source: None,
+            target: path,
+        });
+    }
+
+    let source = bundled_helper_path(app).ok_or_else(|| {
+        CommandError::from(openwrap_core::AppError::Settings(
+            "Could not resolve the bundled helper path.".into(),
+        ))
+    })?;
+    if !source.exists() {
+        return Err(CommandError::from(openwrap_core::AppError::Settings(
+            format!(
+                "Bundled helper not found at {}. Rebuild the app with: npm run tauri:build",
+                source.display()
+            ),
+        )));
+    }
+
+    Ok(HelperInstallPlan {
+        source: Some(source),
+        target: crate::app_state::backend_factory::installed_helper_path(),
+    })
+}
+
+fn shell_quote_path(path: &std::path::Path) -> String {
+    shell_quote(&path.display().to_string())
+}
+
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+fn applescript_string(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
 }

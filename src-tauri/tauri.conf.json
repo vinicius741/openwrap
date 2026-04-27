@@ -5,7 +5,7 @@
   "identifier": "app.openwrap.desktop",
   "build": {
     "beforeDevCommand": "npm run dev --workspace ui",
-    "beforeBuildCommand": "npm run build --workspace ui",
+    "beforeBuildCommand": "cargo build -p openwrap-helper --release && npm run build --workspace ui",
     "devUrl": "http://localhost:5173",
     "frontendDist": "../ui/dist"
   },
@@ -25,7 +25,9 @@
   },
   "bundle": {
     "active": true,
-    "targets": "app"
+    "targets": "app",
+    "resources": {
+      "../target/release/openwrap-helper": "openwrap-helper-bundled"
+    }
   }
 }
-

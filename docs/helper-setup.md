@@ -1,6 +1,6 @@
 # Helper Setup
 
-OpenWrap's phase-2 macOS path uses `openwrap-helper` as a minimal privileged wrapper around the OpenVPN community binary.
+OpenWrap's macOS path uses `openwrap-helper` as a minimal privileged wrapper around the OpenVPN community binary.
 
 ## Automatic installation (recommended)
 
@@ -8,9 +8,17 @@ When the app detects the helper is not installed (missing root ownership or setu
 
 1. Click **Connect** on a profile — if the helper is not installed, an error banner appears with an **Install helper** button.
 2. Click **Install helper** — macOS prompts for your password or Touch ID.
-3. After authentication, the helper is automatically configured with root ownership and the setuid bit.
+3. After authentication, OpenWrap copies the bundled helper into `/Library/PrivilegedHelperTools/app.openwrap.desktop.openwrap-helper` and configures root ownership plus the setuid bit.
 
 You can also install from **Settings** — the Privileged Helper section shows the current status and an install button.
+
+Release builds bundle the helper automatically:
+
+```bash
+npm run tauri:build
+```
+
+The app bundle is written to `target/release/bundle/macos/OpenWrap.app`. Drag or copy it to `/Applications`, launch it, then install the helper from inside the app. OpenVPN itself is still an external dependency; install it separately or set its path in Settings.
 
 ## Manual installation (development)
 
@@ -18,17 +26,15 @@ Development setup:
 
 1. Build the helper:
    `cargo build -p openwrap-helper`
-2. Install the helper with root ownership and the setuid bit:
-   `sudo chown root:wheel target/debug/openwrap-helper`
-   `sudo chmod 4755 target/debug/openwrap-helper`
-3. The `.env` file in the project root sets `OPENWRAP_HELPER_PATH` automatically.
+2. The `.env` file in the project root sets `OPENWRAP_HELPER_PATH` automatically.
    Source it before running:
    `source .env`
+3. Install the helper from inside the app. In development mode, OpenWrap uses `OPENWRAP_HELPER_PATH` and applies the required ownership and setuid bit after macOS authorization.
 
 Verification:
 
 1. Confirm the helper metadata:
-   `ls -l target/debug/openwrap-helper`
+   `ls -l target/debug/openwrap-helper` for development, or `ls -l /Library/PrivilegedHelperTools/app.openwrap.desktop.openwrap-helper` for release.
    The mode should include `s` in the user-execute position and the owner should be `root`.
 2. Run:
    `cargo check -p openwrap-helper`

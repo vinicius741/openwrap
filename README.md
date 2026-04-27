@@ -36,12 +36,10 @@ cargo install tauri-cli --version "^2.0.0" --locked
 
 ### 2. Build the Privileged Helper
 
-The helper wrapper is required to launch OpenVPN with root privileges:
+The helper wrapper is required to launch OpenVPN with root privileges. For development, build it and point the app at it:
 
 ```bash
 cargo build -p openwrap-helper
-sudo chown root:wheel target/debug/openwrap-helper
-sudo chmod 4755 target/debug/openwrap-helper
 ```
 
 ### 3. Configure Environment
@@ -50,11 +48,21 @@ sudo chmod 4755 target/debug/openwrap-helper
 source .env
 ```
 
+When the app needs privileged access, click **Install helper** in Settings or from the connection error banner. macOS will ask for your password or Touch ID and OpenWrap will set the helper ownership and setuid bit from inside the app.
+
 ### 4. Start Development Server
 
 ```bash
 npm run tauri:dev
 ```
+
+## Build the App Bundle
+
+```bash
+npm run tauri:build
+```
+
+The app bundle is created at `target/release/bundle/macos/OpenWrap.app`. You can drag or copy it to `/Applications`. On first use, open Settings and click **Install helper** to install the bundled helper into `/Library/PrivilegedHelperTools`.
 
 ## Scripts
 
@@ -63,6 +71,7 @@ npm run tauri:dev
 | `npm run dev` | Start React dev server (UI only) |
 | `npm run build` | Build the React frontend |
 | `npm run tauri:dev` | Start Tauri development server |
+| `npm run tauri:build` | Build the release `.app` bundle |
 | `npm run cargo:test` | Run Rust tests for openwrap-core |
 | `npm run check` | Build UI and run Rust tests |
 

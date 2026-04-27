@@ -73,6 +73,12 @@ export function SettingsView() {
             <strong>Path</strong>
             <span className="helper-path">{helperStatus?.helperPath ?? '—'}</span>
           </li>
+          {helperStatus?.bundledHelperPath ? (
+            <li>
+              <strong>Bundled source</strong>
+              <span className="helper-path">{helperStatus.bundledHelperPath}</span>
+            </li>
+          ) : null}
           {helperStatus?.reason ? (
             <li>
               <strong>Details</strong>
@@ -105,4 +111,3 @@ export function SettingsView() {
     </div>
   )
 }
-

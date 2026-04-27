@@ -143,6 +143,7 @@ export interface SessionSummary {
 
 export interface HelperStatus {
   helperPath: string
+  bundledHelperPath: string | null
   installed: boolean
   reason: string | null
 }

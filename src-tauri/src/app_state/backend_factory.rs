@@ -3,6 +3,10 @@ use std::sync::Arc;
 use openwrap_core::openvpn::{DirectOpenVpnBackend, HelperOpenVpnBackend};
 use openwrap_core::VpnBackend;
 
+pub const BUNDLED_HELPER_NAME: &str = "openwrap-helper-bundled";
+pub const INSTALLED_HELPER_PATH: &str =
+    "/Library/PrivilegedHelperTools/app.openwrap.desktop.openwrap-helper";
+
 pub fn build_backend() -> Arc<dyn VpnBackend> {
     #[cfg(target_os = "macos")]
     {
@@ -19,14 +23,9 @@ pub fn resolve_helper_binary() -> std::path::PathBuf {
         return path.into();
     }
 
-    if let Ok(current_exe) = std::env::current_exe() {
-        if let Some(exe_dir) = current_exe.parent() {
-            let sibling = exe_dir.join("openwrap-helper");
-            if sibling.exists() {
-                return sibling;
-            }
-        }
-    }
+    installed_helper_path()
+}
 
-    std::path::PathBuf::from("openwrap-helper")
+pub fn installed_helper_path() -> std::path::PathBuf {
+    std::path::PathBuf::from(INSTALLED_HELPER_PATH)
 }
