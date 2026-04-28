@@ -180,7 +180,6 @@ function PasswordSubForm({
             <input
               autoComplete="off"
               placeholder="Base32 secret"
-              type="password"
               value={totpSecret}
               onChange={(event: React.ChangeEvent<HTMLInputElement>) => setTotpSecret(event.target.value)}
               onFocus={() => {
