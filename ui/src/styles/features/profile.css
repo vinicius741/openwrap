@@ -27,7 +27,7 @@
   padding: 12px 14px;
   border: 1px solid transparent;
   border-radius: var(--radius-lg);
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--surface-raised);
   text-align: left;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -35,13 +35,13 @@
 }
 
 .profile-row:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--surface-raised-hover);
   border-color: var(--line);
 }
 
 .profile-row.is-selected {
   background: var(--accent-soft);
-  border-color: rgba(34, 197, 94, 0.25);
+  border-color: var(--profile-row-selected-border);
 }
 
 .profile-name {
@@ -82,7 +82,7 @@
 }
 
 .profile-info-toggle:hover {
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--surface-raised);
 }
 
 .profile-info-summary {
@@ -127,7 +127,7 @@
   flex-direction: column;
   gap: 2px;
   padding: 8px 10px;
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--surface-raised);
   border-radius: var(--radius-md);
   border: 1px solid var(--line);
   font-size: 13px;

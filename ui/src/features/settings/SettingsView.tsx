@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { useAppStore } from '../../store/appStore'
+import { THEMES, initTheme, applyTheme, setStoredTheme, type AppTheme } from '../../lib/theme'
 
 export function SettingsView() {
   const settings = useAppStore((state) => state.settings)
@@ -12,14 +13,46 @@ export function SettingsView() {
 
   const [overridePath, setOverridePath] = useState('')
   const [verboseLogging, setVerboseLogging] = useState(false)
+  const [activeTheme, setActiveTheme] = useState<AppTheme>(() => initTheme())
 
   useEffect(() => {
     setOverridePath(settings?.openvpn_path_override ?? '')
     setVerboseLogging(settings?.verbose_logging ?? false)
   }, [settings])
 
+  const handleThemeChange = (theme: AppTheme) => {
+    setActiveTheme(theme)
+    applyTheme(theme)
+    setStoredTheme(theme)
+  }
+
   return (
     <div className="settings-view">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">Settings</p>
+          <h3>Appearance</h3>
+        </div>
+      </div>
+
+      <div className="settings-field">
+        <label>Theme</label>
+        <div className="theme-options">
+          {THEMES.map((theme) => (
+            <button
+              key={theme.id}
+              className={`theme-card ${activeTheme === theme.id ? 'is-active' : ''}`}
+              onClick={() => handleThemeChange(theme.id)}
+              type="button"
+              aria-label={`Switch to ${theme.label} theme`}
+            >
+              <div className={`theme-preview theme-preview-${theme.id}`} />
+              <span className="theme-label">{theme.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="section-heading">
         <div>
           <p className="eyebrow">Settings</p>

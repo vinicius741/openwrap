@@ -18,13 +18,13 @@
 }
 
 .helper-status-ok {
-  background: var(--success-bg, #e6f9e6);
-  color: var(--success-text, #1a7a1a);
+  background: var(--success-bg);
+  color: var(--success-text);
 }
 
 .helper-status-missing {
-  background: var(--error-bg, #fde8e8);
-  color: var(--error-text, #c42b2b);
+  background: var(--error-bg);
+  color: var(--error-text);
 }
 
 .helper-path {
@@ -36,4 +36,60 @@
 .helper-reason {
   color: var(--text-secondary);
   font-size: 12px;
+}
+
+/* ── Theme selector ── */
+
+.theme-options {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.theme-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--line);
+  background: var(--surface-raised);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: center;
+}
+
+.theme-card:hover {
+  border-color: var(--line-strong);
+  background: var(--surface-raised-hover);
+}
+
+.theme-card.is-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.theme-preview {
+  height: 40px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.theme-preview-midnight {
+  background: #0a0a0b;
+}
+
+.theme-preview-dawn {
+  background: #faf9f7;
+}
+
+.theme-preview-ocean {
+  background: #0b1120;
+}
+
+.theme-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
 }

@@ -5,7 +5,7 @@
   padding: 16px 18px;
   border-radius: var(--radius-lg);
   background: var(--error-soft);
-  border: 1px solid rgba(239, 68, 68, 0.15);
+  border: 1px solid var(--error-border);
 }
 
 .error-detail {
@@ -55,8 +55,8 @@
 .empty-state,
 .sidebar-empty,
 .log-empty {
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px dashed var(--line-strong);
+  background: var(--empty-state-bg);
+  border: 1px dashed var(--empty-state-border);
   text-align: center;
   color: var(--text-secondary);
 }
@@ -66,7 +66,7 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 20px;
-  background: rgba(239, 68, 68, 0.1);
+  background: var(--app-error-banner-bg);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
 }

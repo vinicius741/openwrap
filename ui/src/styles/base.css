@@ -10,8 +10,8 @@ body {
   color: var(--text);
   background: var(--bg);
   background-image:
-    radial-gradient(circle at 15% 50%, rgba(16, 185, 129, 0.08), transparent 25%),
-    radial-gradient(circle at 85% 30%, rgba(59, 130, 246, 0.08), transparent 25%);
+    radial-gradient(circle at 15% 50%, var(--gradient-1), transparent 25%),
+    radial-gradient(circle at 85% 30%, var(--gradient-2), transparent 25%);
   background-attachment: fixed;
   font-size: 14px;
   line-height: 1.5;

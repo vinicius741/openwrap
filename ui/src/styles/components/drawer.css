@@ -1,7 +1,7 @@
 .drawer-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--backdrop-bg);
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
   z-index: 50;
@@ -13,7 +13,7 @@
   top: 0;
   bottom: 0;
   width: min(380px, 100%);
-  background: rgba(12, 12, 14, 0.95);
+  background: var(--drawer-bg);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   z-index: 60;

@@ -48,19 +48,21 @@ export function ConfigSection({
         <div className="config-field">
           <label>
             DNS policy
-            <select
-              value={currentPolicy}
-              disabled={isUpdatingDns}
-              onChange={(event) => {
-                if (isDnsPolicy(event.target.value)) {
-                  void onDnsPolicyChange(event.target.value)
-                }
-              }}
-            >
-              <option value="SplitDnsPreferred">Split DNS preferred</option>
-              <option value="FullOverride">Full override</option>
-              <option value="ObserveOnly">Observe only</option>
-            </select>
+            <div className="select-wrapper">
+              <select
+                value={currentPolicy}
+                disabled={isUpdatingDns}
+                onChange={(event) => {
+                  if (isDnsPolicy(event.target.value)) {
+                    void onDnsPolicyChange(event.target.value)
+                  }
+                }}
+              >
+                <option value="SplitDnsPreferred">Split DNS preferred</option>
+                <option value="FullOverride">Full override</option>
+                <option value="ObserveOnly">Observe only</option>
+              </select>
+            </div>
           </label>
           <p className="config-hint">
             {currentPolicy === 'FullOverride'

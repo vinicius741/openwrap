@@ -2,24 +2,93 @@
 
 :root {
   color-scheme: dark;
+
+  /* ── Core canvas ── */
   --bg: #0a0a0b;
   --panel: rgba(18, 18, 20, 0.85);
   --panel-strong: #141416;
-  --line: rgba(255, 255, 255, 0.08);
-  --line-strong: rgba(255, 255, 255, 0.12);
+
+  /* ── Typography ── */
   --text: #fafafa;
   --text-secondary: #8a8a8e;
   --muted: #5c5c60;
+
+  /* ── Lines & borders ── */
+  --line: rgba(255, 255, 255, 0.08);
+  --line-strong: rgba(255, 255, 255, 0.12);
+
+  /* ── Accent ── */
   --accent: #22c55e;
   --accent-hover: #16a34a;
   --accent-soft: rgba(34, 197, 94, 0.12);
+
+  /* ── Feedback ── */
   --warn: #f59e0b;
   --warn-soft: rgba(245, 158, 11, 0.12);
   --error: #ef4444;
   --error-hover: #dc2626;
   --error-soft: rgba(239, 68, 68, 0.12);
+
+  /* ── Surfaces ── */
+  --surface-raised: rgba(255, 255, 255, 0.02);
+  --surface-raised-hover: rgba(255, 255, 255, 0.04);
+  --topbar-bg: rgba(9, 9, 11, 0.7);
+  --sidebar-bg: rgba(9, 9, 11, 0.85);
+  --drawer-bg: rgba(12, 12, 14, 0.95);
+  --backdrop-bg: rgba(0, 0, 0, 0.6);
+  --modal-backdrop-bg: rgba(0, 0, 0, 0.7);
+
+  /* ── Inputs ── */
+  --input-bg: rgba(0, 0, 0, 0.25);
+  --input-focus-bg: rgba(0, 0, 0, 0.35);
+
+  /* ── Scrollbars ── */
+  --scrollbar-thumb: rgba(255, 255, 255, 0.1);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.2);
+
+  /* ── Log viewer ── */
+  --log-viewer-bg: rgba(0, 0, 0, 0.35);
+  --log-info: #e4e4e7;
+  --log-warn: #fcd34d;
+  --log-error: #fca5a5;
+
+  /* ── Status helpers ── */
+  --success-bg: rgba(34, 197, 94, 0.15);
+  --success-text: #4ade80;
+  --error-bg: rgba(239, 68, 68, 0.15);
+  --error-text: #f87171;
+
+  /* ── Badges ── */
+  --badge-error-text: #f87171;
+  --badge-warn-text: #fbbf24;
+  --badge-connected-border: rgba(34, 197, 94, 0.2);
+  --badge-error-border: rgba(239, 68, 68, 0.2);
+  --badge-warn-border: rgba(245, 158, 11, 0.2);
+
+  /* ── Buttons ── */
+  --primary-button-text: #000;
+  --danger-button-text: #fff;
+  --icon-btn-hover-bg: rgba(255, 255, 255, 0.06);
+  --delete-btn-hover-border: rgba(239, 68, 68, 0.2);
+  --error-border: rgba(239, 68, 68, 0.15);
+
+  /* ── Banners / empty states ── */
+  --app-error-banner-bg: rgba(239, 68, 68, 0.1);
+  --empty-state-bg: rgba(255, 255, 255, 0.02);
+  --empty-state-border: var(--line-strong);
+
+  /* ── Profile row ── */
+  --profile-row-selected-border: rgba(34, 197, 94, 0.25);
+
+  /* ── Background gradients ── */
+  --gradient-1: rgba(16, 185, 129, 0.08);
+  --gradient-2: rgba(59, 130, 246, 0.08);
+
+  /* ── Elevation ── */
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 4px 12px rgba(0, 0, 0, 0.25);
   --shadow-hover: 0 2px 6px rgba(0, 0, 0, 0.35), 0 8px 20px rgba(0, 0, 0, 0.3);
+
+  /* ── Geometry ── */
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
@@ -27,4 +96,152 @@
   --sidebar-width: 280px;
 
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+}
+
+/* ── Dawn (light) ── */
+[data-theme="dawn"] {
+  color-scheme: light;
+
+  --bg: #faf9f7;
+  --panel: rgba(255, 255, 255, 0.85);
+  --panel-strong: #ffffff;
+
+  --text: #1a1a1a;
+  --text-secondary: #6b6b70;
+  --muted: #9ca3af;
+
+  --line: rgba(0, 0, 0, 0.08);
+  --line-strong: rgba(0, 0, 0, 0.12);
+
+  --accent: #f59e0b;
+  --accent-hover: #d97706;
+  --accent-soft: rgba(245, 158, 11, 0.15);
+
+  --warn: #ea580c;
+  --warn-soft: rgba(234, 88, 12, 0.12);
+  --error: #dc2626;
+  --error-hover: #b91c1c;
+  --error-soft: rgba(220, 38, 38, 0.1);
+
+  --surface-raised: rgba(0, 0, 0, 0.03);
+  --surface-raised-hover: rgba(0, 0, 0, 0.05);
+  --topbar-bg: rgba(250, 249, 247, 0.85);
+  --sidebar-bg: rgba(250, 249, 247, 0.9);
+  --drawer-bg: rgba(255, 255, 255, 0.95);
+  --backdrop-bg: rgba(0, 0, 0, 0.25);
+  --modal-backdrop-bg: rgba(0, 0, 0, 0.35);
+
+  --input-bg: rgba(0, 0, 0, 0.04);
+  --input-focus-bg: rgba(0, 0, 0, 0.06);
+
+  --scrollbar-thumb: rgba(0, 0, 0, 0.15);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.25);
+
+  --log-viewer-bg: rgba(0, 0, 0, 0.04);
+  --log-info: #374151;
+  --log-warn: #b45309;
+  --log-error: #991b1b;
+
+  --success-bg: #dcfce7;
+  --success-text: #166534;
+  --error-bg: #fee2e2;
+  --error-text: #991b1b;
+
+  --badge-error-text: #dc2626;
+  --badge-warn-text: #d97706;
+  --badge-connected-border: rgba(245, 158, 11, 0.3);
+  --badge-error-border: rgba(220, 38, 38, 0.25);
+  --badge-warn-border: rgba(234, 88, 12, 0.25);
+
+  --primary-button-text: #fff;
+  --danger-button-text: #fff;
+  --icon-btn-hover-bg: rgba(0, 0, 0, 0.05);
+  --delete-btn-hover-border: rgba(220, 38, 38, 0.25);
+  --error-border: rgba(220, 38, 38, 0.15);
+
+  --app-error-banner-bg: rgba(220, 38, 38, 0.08);
+  --empty-state-bg: rgba(0, 0, 0, 0.02);
+  --empty-state-border: var(--line-strong);
+
+  --profile-row-selected-border: rgba(245, 158, 11, 0.35);
+
+  --gradient-1: rgba(245, 158, 11, 0.08);
+  --gradient-2: rgba(59, 130, 246, 0.08);
+
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 4px 12px rgba(0, 0, 0, 0.06);
+  --shadow-hover: 0 2px 6px rgba(0, 0, 0, 0.1), 0 8px 20px rgba(0, 0, 0, 0.08);
+}
+
+/* ── Ocean (dark blue) ── */
+[data-theme="ocean"] {
+  color-scheme: dark;
+
+  --bg: #0b1120;
+  --panel: rgba(15, 23, 42, 0.85);
+  --panel-strong: #0f172a;
+
+  --text: #f0f9ff;
+  --text-secondary: #94a3b8;
+  --muted: #64748b;
+
+  --line: rgba(255, 255, 255, 0.08);
+  --line-strong: rgba(255, 255, 255, 0.12);
+
+  --accent: #06b6d4;
+  --accent-hover: #0891b2;
+  --accent-soft: rgba(6, 182, 212, 0.15);
+
+  --warn: #f59e0b;
+  --warn-soft: rgba(245, 158, 11, 0.12);
+  --error: #ef4444;
+  --error-hover: #dc2626;
+  --error-soft: rgba(239, 68, 68, 0.12);
+
+  --surface-raised: rgba(255, 255, 255, 0.03);
+  --surface-raised-hover: rgba(255, 255, 255, 0.05);
+  --topbar-bg: rgba(11, 17, 32, 0.7);
+  --sidebar-bg: rgba(11, 17, 32, 0.85);
+  --drawer-bg: rgba(15, 23, 42, 0.95);
+  --backdrop-bg: rgba(0, 0, 0, 0.6);
+  --modal-backdrop-bg: rgba(0, 0, 0, 0.7);
+
+  --input-bg: rgba(0, 0, 0, 0.25);
+  --input-focus-bg: rgba(0, 0, 0, 0.35);
+
+  --scrollbar-thumb: rgba(255, 255, 255, 0.1);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.2);
+
+  --log-viewer-bg: rgba(0, 0, 0, 0.35);
+  --log-info: #e2e8f0;
+  --log-warn: #fcd34d;
+  --log-error: #fca5a5;
+
+  --success-bg: rgba(6, 182, 212, 0.15);
+  --success-text: #22d3ee;
+  --error-bg: rgba(239, 68, 68, 0.15);
+  --error-text: #f87171;
+
+  --badge-error-text: #f87171;
+  --badge-warn-text: #fbbf24;
+  --badge-connected-border: rgba(6, 182, 212, 0.25);
+  --badge-error-border: rgba(239, 68, 68, 0.2);
+  --badge-warn-border: rgba(245, 158, 11, 0.2);
+
+  --primary-button-text: #000;
+  --danger-button-text: #fff;
+  --icon-btn-hover-bg: rgba(255, 255, 255, 0.06);
+  --delete-btn-hover-border: rgba(239, 68, 68, 0.2);
+  --error-border: rgba(239, 68, 68, 0.15);
+
+  --app-error-banner-bg: rgba(239, 68, 68, 0.1);
+  --empty-state-bg: rgba(255, 255, 255, 0.02);
+  --empty-state-border: var(--line-strong);
+
+  --profile-row-selected-border: rgba(6, 182, 212, 0.3);
+
+  --gradient-1: rgba(6, 182, 212, 0.1);
+  --gradient-2: rgba(59, 130, 246, 0.1);
+
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.4), 0 4px 12px rgba(0, 0, 0, 0.3);
+  --shadow-hover: 0 2px 6px rgba(0, 0, 0, 0.45), 0 8px 20px rgba(0, 0, 0, 0.35);
 }
