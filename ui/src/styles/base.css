@@ -10,9 +10,11 @@ body {
   color: var(--text);
   background: var(--bg);
   background-image:
-    radial-gradient(circle at 15% 50%, var(--gradient-1), transparent 25%),
-    radial-gradient(circle at 85% 30%, var(--gradient-2), transparent 25%);
+    radial-gradient(circle at 15% 50%, var(--gradient-1), transparent 30%),
+    radial-gradient(circle at 85% 30%, var(--gradient-2), transparent 30%),
+    radial-gradient(circle at 50% 90%, var(--gradient-3), transparent 25%);
   background-attachment: fixed;
+  font-family: var(--font-body);
   font-size: 14px;
   line-height: 1.5;
 }

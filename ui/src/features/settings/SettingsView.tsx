@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { useAppStore } from '../../store/appStore'
-import { THEMES, initTheme, applyTheme, setStoredTheme, type AppTheme } from '../../lib/theme'
+import { THEMES, getStoredTheme, applyTheme, setStoredTheme, type AppTheme } from '../../lib/theme'
 
 export function SettingsView() {
   const settings = useAppStore((state) => state.settings)
@@ -13,7 +13,7 @@ export function SettingsView() {
 
   const [overridePath, setOverridePath] = useState('')
   const [verboseLogging, setVerboseLogging] = useState(false)
-  const [activeTheme, setActiveTheme] = useState<AppTheme>(() => initTheme())
+  const [activeTheme, setActiveTheme] = useState<AppTheme>(() => getStoredTheme())
 
   useEffect(() => {
     setOverridePath(settings?.openvpn_path_override ?? '')
@@ -48,6 +48,7 @@ export function SettingsView() {
             >
               <div className={`theme-preview theme-preview-${theme.id}`} />
               <span className="theme-label">{theme.label}</span>
+              <span className="theme-font-name" data-font={theme.fontKey}>{theme.font}</span>
             </button>
           ))}
         </div>

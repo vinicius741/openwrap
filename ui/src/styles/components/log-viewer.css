@@ -35,7 +35,7 @@
   display: grid;
   grid-template-columns: 84px 64px 1fr;
   gap: 12px;
-  font-family: "JetBrains Mono", "SF Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.6;
 }

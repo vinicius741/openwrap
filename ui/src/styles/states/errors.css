@@ -10,7 +10,7 @@
 
 .error-detail {
   color: var(--text);
-  font-family: "SFMono-Regular", "SF Mono", Monaco, Consolas, "Liberation Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -38,7 +38,7 @@
 .log-file-path {
   margin: 0;
   word-break: break-word;
-  font-family: "SFMono-Regular", "SF Mono", Monaco, Consolas, "Liberation Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.6;
   color: var(--text);
@@ -67,8 +67,8 @@
   justify-content: space-between;
   gap: 20px;
   background: var(--app-error-banner-bg);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(var(--panel-blur));
+  -webkit-backdrop-filter: blur(var(--panel-blur));
 }
 
 .log-meta,

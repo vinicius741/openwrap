@@ -3,8 +3,8 @@
   min-width: var(--sidebar-width);
   border-right: 1px solid var(--line);
   background: var(--sidebar-bg);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(var(--panel-blur));
+  -webkit-backdrop-filter: blur(var(--panel-blur));
   display: flex;
   flex-direction: column;
   overflow: hidden;

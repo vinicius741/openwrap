@@ -3,8 +3,9 @@ h2,
 h3,
 h4 {
   margin: 0;
-  font-weight: 600;
-  letter-spacing: -0.02em;
+  font-family: var(--font-heading);
+  font-weight: var(--heading-weight);
+  letter-spacing: var(--heading-tracking);
 }
 
 h1 { font-size: 24px; }
