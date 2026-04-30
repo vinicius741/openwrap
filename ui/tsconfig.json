@@ -9,8 +9,7 @@
     "skipLibCheck": true,
     "types": [
       "vite/client"
-    ],
-    "baseUrl": "./src"
+    ]
   },
   "include": [
     "src"

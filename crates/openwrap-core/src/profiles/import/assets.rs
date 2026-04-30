@@ -203,7 +203,11 @@ fn build_asset(
 ) -> ManagedAsset {
     let mut hasher = Sha256::new();
     hasher.update(bytes);
-    let sha256 = format!("{:x}", hasher.finalize());
+    let sha256 = hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect();
 
     ManagedAsset {
         id: AssetId::new(),
