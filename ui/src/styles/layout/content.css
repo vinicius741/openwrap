@@ -5,6 +5,5 @@
   flex-direction: column;
   gap: 28px;
   padding: 28px 36px;
-  max-width: 860px;
   overflow-y: auto;
 }
