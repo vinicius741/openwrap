@@ -3,7 +3,7 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 28px;
-  padding: 28px 36px;
+  gap: var(--space-lg);
+  padding: var(--space-lg) var(--space-xl);
   overflow-y: auto;
 }

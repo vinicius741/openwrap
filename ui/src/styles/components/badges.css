@@ -8,7 +8,7 @@
   font-size: 12px;
   background: var(--surface-raised);
   text-transform: capitalize;
-  letter-spacing: 0.01em;
+  letter-spacing: var(--heading-tracking);
 }
 
 .status-connected {

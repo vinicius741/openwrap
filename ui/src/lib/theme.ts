@@ -1,9 +1,17 @@
 export type AppTheme = 'midnight' | 'dawn' | 'ocean'
 
-export const THEMES: { id: AppTheme; label: string; font: string; fontKey: string }[] = [
-  { id: 'midnight', label: 'Midnight', font: 'Inter', fontKey: 'inter' },
-  { id: 'dawn', label: 'Dawn', font: 'Outfit', fontKey: 'outfit' },
-  { id: 'ocean', label: 'Ocean', font: 'IBM Plex Sans', fontKey: 'ibm-plex-sans' },
+export interface ThemeMeta {
+  id: AppTheme
+  label: string
+  font: string
+  fontKey: string
+  personality: string
+}
+
+export const THEMES: ThemeMeta[] = [
+  { id: 'midnight', label: 'Midnight', font: 'Inter', fontKey: 'inter', personality: 'Sharp · Dense · Angular' },
+  { id: 'dawn', label: 'Dawn', font: 'Outfit', fontKey: 'outfit', personality: 'Warm · Round · Spacious' },
+  { id: 'ocean', label: 'Ocean', font: 'IBM Plex Sans', fontKey: 'ibm-plex-sans', personality: 'Clean · Balanced · Fluid' },
 ]
 
 const FONT_LOADERS: Record<AppTheme, () => Promise<unknown[]>> = {

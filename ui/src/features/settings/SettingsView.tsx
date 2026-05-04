@@ -49,6 +49,7 @@ export function SettingsView() {
               <div className={`theme-preview theme-preview-${theme.id}`} />
               <span className="theme-label">{theme.label}</span>
               <span className="theme-font-name" data-font={theme.fontKey}>{theme.font}</span>
+              <span className="theme-personality">{theme.personality}</span>
             </button>
           ))}
         </div>

@@ -15,8 +15,8 @@ body {
     radial-gradient(circle at 50% 90%, var(--gradient-3), transparent 25%);
   background-attachment: fixed;
   font-family: var(--font-body);
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: var(--body-font-size);
+  line-height: var(--body-line-height);
 }
 
 button,

@@ -24,7 +24,7 @@
   flex-direction: column;
   gap: 4px;
   width: 100%;
-  padding: 12px 14px;
+  padding: 12px var(--card-padding);
   border: 1px solid transparent;
   border-radius: var(--radius-lg);
   background: var(--surface-raised);
