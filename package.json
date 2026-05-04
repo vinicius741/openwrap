@@ -12,6 +12,7 @@
     "tauri:dev": "cargo tauri dev",
     "tauri:build": "cargo tauri build --bundles app",
     "cargo:test": "cargo test -p openwrap-core",
+    "test": "node --test test/config-regression.mjs",
     "check": "npm run build --workspace ui && cargo test -p openwrap-core"
   }
 }

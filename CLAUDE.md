@@ -21,7 +21,8 @@ npm run tauri:dev        # Full Tauri development server
 npm run build            # Build React frontend
 npm run build --workspace ui  # Same as above
 
-# Rust tests
+# Tests
+npm test                 # Config regression tests (Node.js built-in runner)
 npm run cargo:test       # Run openwrap-core tests
 cargo test -p openwrap-core   # Direct
 
@@ -91,6 +92,26 @@ pub trait VpnBackend: Send + Sync {
 These traits are defined in `crates/openwrap-core/src/lib.rs` and keep the Tauri layer testable.
 
 ## IPC Patterns
+
+### Dev Server Configuration
+
+The Vite dev server and Tauri dev URL are explicitly bound to `127.0.0.1` (not `localhost`) to avoid DNS resolution differences between Tauri's webview and Vite.
+
+Because npm hoists `zustand` to root `node_modules/` while `react` stays in `ui/node_modules/`, the Vite config includes aliases that bridge this gap:
+
+```ts
+// ui/vite.config.ts
+resolve: {
+  alias: {
+    react: './ui/node_modules/react',
+    'react-dom': './ui/node_modules/react-dom',
+  },
+},
+```
+
+Theme initialization in `ui/src/main.tsx` is fire-and-forget (`void initTheme().catch(...)`) so that a font loading failure never blocks React from mounting (which causes a blank white screen).
+
+Regression tests in `test/config-regression.mjs` guard all three of these constraints.
 
 ### Commands (Frontend → Backend)
 
