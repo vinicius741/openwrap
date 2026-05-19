@@ -262,13 +262,35 @@ impl ConnectionManager {
             state.active_session.clone()
         };
 
+        let should_reconcile =
+            session.is_some() || self.paths.runtime_dir.join("dns-state").exists();
+
         if let Some(session) = session {
             crate::connection::manager::cleanup_auth_file(&session);
             let _ = self.backend.disconnect(session.session_id.clone());
+            crate::connection::manager::cleanup_runtime_artifacts(&session);
         }
 
+        let reconcile_result = if should_reconcile {
+            let result = self
+                .backend
+                .reconcile_dns(crate::openvpn::ReconcileDnsRequest {
+                    runtime_root: self.paths.runtime_dir.clone(),
+                });
+            if let Err(error) = &result {
+                self.session_log
+                    .log_dns(&format!("DNS shutdown reconciliation failed: {error}"));
+            } else {
+                self.session_log
+                    .log_dns("DNS shutdown reconciliation succeeded");
+            }
+            result
+        } else {
+            Ok(())
+        };
+
         self.finish_disconnect();
-        Ok(())
+        reconcile_result
     }
 
     pub async fn disconnect_if_connected(

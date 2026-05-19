@@ -43,6 +43,16 @@ pub fn run() {
             }
         })
         .invoke_handler(invoke_handlers!())
-        .run(tauri::generate_context!())
-        .expect("failed to run OpenWrap");
+        .build(tauri::generate_context!())
+        .expect("failed to build OpenWrap")
+        .run(|app_handle, event| {
+            if matches!(
+                event,
+                tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
+            ) {
+                if let Some(state) = app_handle.try_state::<crate::app_state::AppState>() {
+                    state.shutdown();
+                }
+            }
+        });
 }

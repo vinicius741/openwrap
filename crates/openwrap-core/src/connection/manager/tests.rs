@@ -612,6 +612,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn shutdown_disconnects_and_reconciles_dns_immediately() {
+        let (manager, backend, profile_id, _, _) = build_manager(CredentialMode::None, None);
+        let _session = backend.queue_session(Some(52));
+
+        manager.connect(profile_id.to_string()).await.unwrap();
+        let request = backend.last_request().unwrap();
+        let runtime_dir = request.runtime_dir.clone();
+        assert!(runtime_dir.exists());
+
+        manager.shutdown().unwrap();
+
+        assert_eq!(backend.disconnect_count(), 1);
+        assert_eq!(backend.reconcile_count(), 1);
+        assert!(!runtime_dir.exists());
+        assert_eq!(manager.snapshot().state, ConnectionState::Idle);
+    }
+
+    #[tokio::test]
     async fn auto_promotion_persists_full_override_once_per_connection() {
         let (manager, backend, profile_id, _, repository) =
             build_manager(CredentialMode::None, None);

@@ -3,7 +3,10 @@ mod startup;
 
 pub use backend_factory::build_backend;
 
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 
 use openwrap_core::app_state::AppPaths;
 use openwrap_core::connection::ConnectionManager;
@@ -18,6 +21,7 @@ pub struct AppState {
     pub connection_manager: Arc<ConnectionManager>,
     pub secret_store: Arc<CompositeSecretStore>,
     pub paths: AppPaths,
+    shutdown_started: AtomicBool,
 }
 
 impl AppState {
@@ -51,6 +55,7 @@ impl AppState {
             connection_manager,
             secret_store,
             paths,
+            shutdown_started: AtomicBool::new(false),
         })
     }
 
@@ -60,5 +65,15 @@ impl AppState {
 
     pub fn secret_store(&self) -> Arc<dyn SecretStore> {
         self.secret_store.clone()
+    }
+
+    pub fn shutdown(&self) {
+        if self.shutdown_started.swap(true, Ordering::SeqCst) {
+            return;
+        }
+
+        if let Err(error) = self.connection_manager.shutdown() {
+            eprintln!("Warning: shutdown DNS reconciliation failed: {error}");
+        }
     }
 }
