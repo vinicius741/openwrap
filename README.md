@@ -72,6 +72,7 @@ The app bundle is created at `target/release/bundle/macos/OpenWrap.app`. You can
 | `npm run build` | Build the React frontend |
 | `npm run tauri:dev` | Start Tauri development server |
 | `npm run tauri:build` | Build the release `.app` bundle |
+| `npm test` | Run dev server and dependency config regression tests |
 | `npm run cargo:test` | Run Rust tests for openwrap-core |
 | `npm run check` | Build UI and run Rust tests |
 
@@ -99,7 +100,7 @@ The core crate defines traits for secret storage and VPN process launching, keep
 ## Security
 
 - Standard prompt-based profiles store only remembered usernames in Keychain
-- Opt-in generated-password profiles store their local PIN+TOTP secret material in a separate app-local SQLite database under the OpenWrap data directory
+- Opt-in generated-password profiles store their local PIN+TOTP secret material in a separate app-local SQLite database (`openwrap-secrets.sqlite3`) under the OpenWrap data directory
 - Imported profiles are treated as untrusted input
 - Unsupported directives are blocked by default
 - Clear failure reports for missing files, path traversal attempts, and unsupported options
@@ -114,9 +115,13 @@ cargo test -p openwrap-core
 cargo check -p openwrap-app
 cargo check -p openwrap-helper
 
+# Dev server and config regression tests
+npm test
+
 # Frontend build
 npm run build --workspace ui
 ```
+
 
 ## License
 
