@@ -136,10 +136,21 @@ impl VpnBackend for HelperOpenVpnBackend {
                     .status();
             }
 
-            tokio::spawn(async move {
-                let mut child = handle.child.lock().await;
-                let _ = child.wait().await;
-            });
+            // Only reap the child asynchronously when a Tokio runtime is
+            // entered on this thread. disconnect() is also reached via
+            // ConnectionManager::shutdown(), which runs on the main thread
+            // from macOS' nounwind application_will_terminate callback during
+            // app termination — where no runtime is entered and a bare
+            // tokio::spawn would panic ("there is no reactor running"),
+            // escalate to panic_cannot_unwind, and abort the process. The
+            // SIGTERM above already stops the process; if we skip the reaper
+            // here the OS reaps any zombie when the app exits.
+            if tokio::runtime::Handle::try_current().is_ok() {
+                tokio::spawn(async move {
+                    let mut child = handle.child.lock().await;
+                    let _ = child.wait().await;
+                });
+            }
         }
         Ok(())
     }

@@ -408,7 +408,11 @@ fn resolve_generated_password(
 
 impl Drop for ConnectionManager {
     fn drop(&mut self) {
-        let _ = self.shutdown();
+        // Drop may run on the main thread during app termination (no Tokio
+        // runtime entered) and inside `extern "C"`/nounwind boundaries, where
+        // a panic would abort the process. Contain any failure so teardown
+        // always completes.
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.shutdown()));
     }
 }
 

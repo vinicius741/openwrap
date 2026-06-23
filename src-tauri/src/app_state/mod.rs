@@ -3,6 +3,7 @@ mod startup;
 
 pub use backend_factory::build_backend;
 
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -67,13 +68,33 @@ impl AppState {
         self.secret_store.clone()
     }
 
+    /// Run connection-manager shutdown unconditionally and without panicking.
+    ///
+    /// This is reached from Tauri's RunEvent::Exit callback, which on macOS
+    /// fires from tao's `application_will_terminate` — an `extern "C"` (i.e.
+    /// `nounwind`) boundary on the main thread. Any panic here escalates to
+    /// `panic_cannot_unwind` and aborts the process (SIGABRT). Wrapping the
+    /// whole subtree in catch_unwind guarantees that a bug in cleanup can
+    /// never crash termination; we log and move on so the OS can tear down.
     pub fn shutdown(&self) {
         if self.shutdown_started.swap(true, Ordering::SeqCst) {
             return;
         }
 
-        if let Err(error) = self.connection_manager.shutdown() {
-            eprintln!("Warning: shutdown DNS reconciliation failed: {error}");
+        let result = catch_unwind(AssertUnwindSafe(|| self.connection_manager.shutdown()));
+        match result {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => {
+                eprintln!("Warning: shutdown DNS reconciliation failed: {error}");
+            }
+            Err(panic_payload) => {
+                let msg = panic_payload
+                    .downcast_ref::<String>()
+                    .map(|s| s.as_str())
+                    .or_else(|| panic_payload.downcast_ref::<&str>().copied())
+                    .unwrap_or("unknown panic");
+                eprintln!("Warning: shutdown panicked and was suppressed: {msg}");
+            }
         }
     }
 }

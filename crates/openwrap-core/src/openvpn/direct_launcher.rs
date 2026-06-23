@@ -112,11 +112,19 @@ impl VpnBackend for DirectOpenVpnBackend {
                     .status();
             }
 
-            tokio::spawn(async move {
-                let mut child = handle.child.lock().await;
-                let _ = child.start_kill();
-                let _ = child.wait().await;
-            });
+            // See HelperOpenVpnBackend::disconnect: this path is also reached
+            // from ConnectionManager::shutdown() on the main thread during app
+            // termination, where no Tokio runtime is entered and a bare
+            // tokio::spawn would panic and abort the process. The SIGTERM
+            // above already stops the child; only spawn the reaper when a
+            // runtime is actually available.
+            if tokio::runtime::Handle::try_current().is_ok() {
+                tokio::spawn(async move {
+                    let mut child = handle.child.lock().await;
+                    let _ = child.start_kill();
+                    let _ = child.wait().await;
+                });
+            }
         }
         Ok(())
     }
@@ -198,5 +206,75 @@ mod tests {
             PathBuf::from(stdout).canonicalize().unwrap(),
             profile_dir.canonicalize().unwrap()
         );
+    }
+
+    /// Regression test for the SIGABRT crash on app termination.
+    ///
+    /// `ConnectionManager::shutdown()` calls `disconnect()` on the main thread
+    /// from macOS' `application_will_terminate` (a `nounwind` `extern "C"`
+    /// callback). That thread has no entered Tokio runtime, so an unconditional
+    /// `tokio::spawn` inside `disconnect()` would panic with "there is no
+    /// reactor running", escalate to `panic_cannot_unwind`, and abort the
+    /// process. This test reproduces that exact condition (a plain thread with
+    /// no runtime) and asserts `disconnect()` returns normally instead of
+    /// aborting.
+    #[test]
+    fn disconnect_does_not_panic_without_tokio_runtime() {
+        // Spawn the child from within a runtime, then drop out of it before
+        // calling disconnect — mirroring connect on a worker thread and
+        // disconnect during termination on the main thread.
+        let backend = DirectOpenVpnBackend::new();
+        let session_id = SessionId::new();
+
+        let temp = tempdir().unwrap();
+        let profile_dir = temp.path().join("profiles").join("profile-1");
+        let runtime_dir = temp
+            .path()
+            .join("runtime")
+            .join("profile-1")
+            .join("session-1");
+        fs::create_dir_all(&profile_dir).unwrap();
+        fs::create_dir_all(&runtime_dir).unwrap();
+
+        // A long-lived child so it is still alive when disconnect runs.
+        let sleeper = temp.path().join("sleeper.sh");
+        fs::write(&sleeper, "#!/bin/sh\nsleep 30\n").unwrap();
+        let mut permissions = fs::metadata(&sleeper).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&sleeper, permissions).unwrap();
+
+        let config_path = profile_dir.join("profile.ovpn");
+        fs::write(&config_path, "client\n").unwrap();
+
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(async {
+            backend
+                .connect(ConnectRequest {
+                    session_id: session_id.clone(),
+                    profile_id: ProfileId::new(),
+                    openvpn_binary: sleeper,
+                    config_path,
+                    auth_file: None,
+                    runtime_dir,
+                })
+                .unwrap();
+        });
+        // Dropping `rt` ensures there is no ambient runtime on this thread,
+        // but we run disconnect on a *different* plain thread to be certain
+        // no runtime context is inherited (exactly like the main thread at
+        // termination time).
+        let backend_clone = std::sync::Arc::new(backend);
+        let backend_for_thread = backend_clone.clone();
+        let session_id_for_thread = session_id.clone();
+        let handle = std::thread::spawn(move || {
+            // Must not panic and must not abort the process.
+            backend_for_thread
+                .disconnect(session_id_for_thread)
+                .expect("disconnect should succeed without a runtime");
+        });
+        handle.join().expect("disconnect thread must not panic");
     }
 }
