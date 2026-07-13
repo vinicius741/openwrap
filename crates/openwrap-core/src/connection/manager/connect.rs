@@ -10,7 +10,7 @@ use crate::connection::{ConnectionSnapshot, SessionId};
 use crate::dns::DnsObserver;
 use crate::errors::AppError;
 use crate::logging::SharedSessionLogManager;
-use crate::openvpn::{BackendEvent, ConnectRequest};
+use crate::openvpn::{BackendEvent, ConnectRequest, VpnBackendMode};
 use crate::profiles::ProfileId;
 use crate::{ProfileRepository, VpnBackend};
 
@@ -93,21 +93,27 @@ pub fn start_connect_attempt(
         ));
     }
 
-    let settings = match repository.get_settings() {
-        Ok(settings) => settings,
-        Err(error) => {
-            set_terminal_error(&paths, &state, &events, &profile_id, &error);
-            return Err(error);
+    let backend_mode = backend.mode();
+    let openvpn_binary = match backend_mode {
+        VpnBackendMode::ExternalProcess => {
+            let settings = match repository.get_settings() {
+                Ok(settings) => settings,
+                Err(error) => {
+                    set_terminal_error(&paths, &state, &events, &profile_id, &error);
+                    return Err(error);
+                }
+            };
+            let detection = crate::detect_openvpn_binaries(settings.openvpn_path_override);
+            match detection.selected_path {
+                Some(path) => path,
+                None => {
+                    let error = AppError::OpenVpnBinaryNotFound;
+                    set_terminal_error(&paths, &state, &events, &profile_id, &error);
+                    return Err(error);
+                }
+            }
         }
-    };
-    let detection = crate::detect_openvpn_binaries(settings.openvpn_path_override);
-    let openvpn_binary = match detection.selected_path {
-        Some(path) => path,
-        None => {
-            let error = AppError::OpenVpnBinaryNotFound;
-            set_terminal_error(&paths, &state, &events, &profile_id, &error);
-            return Err(error);
-        }
+        VpnBackendMode::PacketTunnel => std::path::PathBuf::new(),
     };
 
     let session_id = SessionId::new();
@@ -135,7 +141,7 @@ pub fn start_connect_attempt(
         }
     };
     let (launch_config_path, extra_cleanup_paths) =
-        match write_launch_config(&plan.detail, &runtime_dir) {
+        match write_launch_config(&plan.detail, &runtime_dir, backend_mode) {
             Ok(paths) => paths,
             Err(error) => {
                 cleanup_runtime_dir(&runtime_dir);
@@ -150,6 +156,8 @@ pub fn start_connect_attempt(
         config_path: launch_config_path,
         auth_file: auth_file.clone(),
         runtime_dir: runtime_dir.clone(),
+        dns_policy: plan.detail.profile.dns_policy.clone(),
+        dns_intent: plan.detail.profile.dns_intent.clone(),
     };
 
     let spawned = match backend.connect(request) {

@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use crate::app_state::AppPaths;
 use crate::config::{parse_profile, rewrite_profile};
 use crate::errors::AppError;
+use crate::openvpn::VpnBackendMode;
 use crate::profiles::{ProfileDetail, ProfileId};
 
 const AUTH_FILE_NAME: &str = "auth.txt";
@@ -47,27 +48,56 @@ pub fn write_auth_file(
 pub fn write_launch_config(
     detail: &ProfileDetail,
     runtime_dir: &Path,
+    backend_mode: VpnBackendMode,
 ) -> Result<(PathBuf, Vec<PathBuf>), AppError> {
     let source = fs::read_to_string(&detail.profile.managed_ovpn_path)?;
     let parsed = parse_profile(&source, &detail.profile.managed_dir)?;
-    let rewritten_assets = detail
-        .assets
-        .iter()
-        .map(|asset| {
-            (
-                asset.kind.clone(),
-                quote_openvpn_arg(&detail.profile.managed_dir.join(&asset.relative_path)),
-            )
-        })
-        .collect::<HashMap<_, _>>();
+    let rewritten_assets = match backend_mode {
+        VpnBackendMode::ExternalProcess => detail
+            .assets
+            .iter()
+            .map(|asset| {
+                (
+                    asset.kind.clone(),
+                    quote_openvpn_arg(&detail.profile.managed_dir.join(&asset.relative_path)),
+                )
+            })
+            .collect::<HashMap<_, _>>(),
+        VpnBackendMode::PacketTunnel => {
+            let assets_dir = runtime_dir.join("assets");
+            fs::create_dir_all(&assets_dir)?;
+            tighten_dir_permissions(&assets_dir)?;
+            detail
+                .assets
+                .iter()
+                .map(|asset| {
+                    let source = detail.profile.managed_dir.join(&asset.relative_path);
+                    // Use the kind-based canonical filename so shared basenames
+                    // from future relative paths cannot silently overwrite.
+                    let file_name = asset.kind.file_name();
+                    let target = assets_dir.join(file_name);
+                    fs::copy(source, &target)?;
+                    tighten_file_permissions(&target)?;
+                    Ok((
+                        asset.kind.clone(),
+                        quote_openvpn_arg(&Path::new("assets").join(file_name)),
+                    ))
+                })
+                .collect::<Result<HashMap<_, _>, AppError>>()?
+        }
+    };
     let mut launch_config = rewrite_profile(&parsed, &rewritten_assets);
     #[cfg(target_os = "macos")]
-    let extra_cleanup_paths = crate::dns::append_macos_launch_dns_config(
-        &mut launch_config,
-        runtime_dir,
-        &detail.profile.id,
-        &detail.profile.dns_policy,
-    )?;
+    let extra_cleanup_paths = if backend_mode == VpnBackendMode::ExternalProcess {
+        crate::dns::append_macos_launch_dns_config(
+            &mut launch_config,
+            runtime_dir,
+            &detail.profile.id,
+            &detail.profile.dns_policy,
+        )?
+    } else {
+        Vec::new()
+    };
 
     #[cfg(not(target_os = "macos"))]
     let extra_cleanup_paths = Vec::new();
@@ -137,6 +167,19 @@ pub fn tighten_dir_permissions(path: &Path) -> Result<(), AppError> {
     use std::os::unix::fs::PermissionsExt;
 
     fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
+    Ok(())
+}
+
+#[cfg(unix)]
+pub fn tighten_file_permissions(path: &Path) -> Result<(), AppError> {
+    use std::os::unix::fs::PermissionsExt;
+
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+pub fn tighten_file_permissions(_path: &Path) -> Result<(), AppError> {
     Ok(())
 }
 

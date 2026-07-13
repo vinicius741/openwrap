@@ -4,7 +4,20 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
 use crate::connection::SessionId;
+use crate::dns::DnsPolicy;
 use crate::profiles::ProfileId;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VpnBackendMode {
+    ExternalProcess,
+    PacketTunnel,
+}
+
+impl Default for VpnBackendMode {
+    fn default() -> Self {
+        Self::ExternalProcess
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnectRequest {
@@ -14,6 +27,8 @@ pub struct ConnectRequest {
     pub config_path: PathBuf,
     pub auth_file: Option<PathBuf>,
     pub runtime_dir: PathBuf,
+    pub dns_policy: DnsPolicy,
+    pub dns_intent: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,6 +69,8 @@ mod tests {
             config_path: PathBuf::from("/tmp/profile.ovpn"),
             auth_file: Some(PathBuf::from("/tmp/auth.txt")),
             runtime_dir: PathBuf::from("/tmp/runtime"),
+            dns_policy: DnsPolicy::SplitDnsPreferred,
+            dns_intent: vec!["DNS 10.0.0.53".into(), "DOMAIN corp.example".into()],
         };
         assert!(request.session_id.0 != uuid::Uuid::nil());
         assert!(request.profile_id.0 != uuid::Uuid::nil());
@@ -70,6 +87,8 @@ mod tests {
             config_path: PathBuf::from("/tmp/profile.ovpn"),
             auth_file: None,
             runtime_dir: PathBuf::from("/tmp/runtime"),
+            dns_policy: DnsPolicy::ObserveOnly,
+            dns_intent: Vec::new(),
         };
         assert!(request.auth_file.is_none());
     }

@@ -8,6 +8,7 @@ pub enum ParsedLogSignal {
     Connected,
     RetryableFailure,
     AuthFailed,
+    SystemExtensionFailed,
     DnsHint,
     None,
 }
@@ -22,7 +23,9 @@ pub fn sanitize_log(stream: &str, line: &str) -> LogEntry {
         }
     }
 
-    let (level, classification) = if line.contains("AUTH_FAILED") {
+    let (level, classification) = if is_system_extension_failure(line) {
+        (LogLevel::Error, "system_extension_error")
+    } else if line.contains("AUTH_FAILED") {
         (LogLevel::Error, "auth_failed")
     } else if line.contains("Initialization Sequence Completed") {
         (LogLevel::Info, "connected")
@@ -55,6 +58,8 @@ pub fn sanitize_log(stream: &str, line: &str) -> LogEntry {
 pub fn classify_signal(line: &str) -> ParsedLogSignal {
     if line.contains("Initialization Sequence Completed") {
         ParsedLogSignal::Connected
+    } else if is_system_extension_failure(line) {
+        ParsedLogSignal::SystemExtensionFailed
     } else if line.contains("AUTH_FAILED") {
         ParsedLogSignal::AuthFailed
     } else if line.contains("SIGUSR1") || line.contains("Restart pause") {
@@ -80,7 +85,9 @@ pub fn diagnose_exit_error<'a>(
         .find_map(|entry| relevant_failure_detail(entry))?;
     let details_safe = Some(detail.clone());
 
-    if contains_any(
+    if is_system_extension_failure(&detail) {
+        Some(system_extension_error(&detail))
+    } else if contains_any(
         &detail,
         &[
             "cannot resolve host address",
@@ -198,6 +205,44 @@ pub fn diagnose_exit_error<'a>(
             details_safe,
         })
     }
+}
+
+pub fn system_extension_error(detail: &str) -> UserFacingError {
+    let missing_install_entitlement = contains_any(
+        detail,
+        &[
+            "com.apple.developer.system-extension.install",
+            "missing entitlement",
+        ],
+    );
+    UserFacingError {
+        code: "system_extension_unavailable".into(),
+        title: if missing_install_entitlement {
+            "Signed OpenWrap build required".into()
+        } else {
+            "Packet Tunnel system extension failed".into()
+        },
+        message: if missing_install_entitlement {
+            "macOS rejected this OpenWrap build because its code signature does not contain the System Extension install entitlement.".into()
+        } else {
+            "macOS could not activate the OpenWrap Packet Tunnel system extension.".into()
+        },
+        suggested_fix: Some(
+            "Run a bundled app signed and provisioned by an Apple Developer team for both the host app and Packet Tunnel provider. `tauri dev` and unsigned builds cannot activate the tunnel."
+                .into(),
+        ),
+        details_safe: Some(truncate_detail(detail)),
+    }
+}
+
+fn is_system_extension_failure(line: &str) -> bool {
+    contains_any(
+        line,
+        &[
+            "system extension activation failed",
+            "com.apple.developer.system-extension.install",
+        ],
+    )
 }
 
 fn error_classification(line: &str) -> Option<(LogLevel, &'static str)> {
@@ -356,6 +401,28 @@ mod tests {
         );
         assert_eq!(entry.level, LogLevel::Error);
         assert_eq!(entry.classification, "config_error");
+    }
+
+    #[test]
+    fn diagnoses_missing_system_extension_entitlement() {
+        let detail = "System extension activation failed: Missing entitlement com.apple.developer.system-extension.install";
+        assert_eq!(
+            classify_signal(detail),
+            ParsedLogSignal::SystemExtensionFailed
+        );
+
+        let entry = sanitize_log("stderr", detail);
+        assert_eq!(entry.level, LogLevel::Error);
+        assert_eq!(entry.classification, "system_extension_error");
+
+        let logs = [entry];
+        let error = diagnose_exit_error(Some(1), logs.iter()).expect("expected diagnosis");
+        assert_eq!(error.code, "system_extension_unavailable");
+        assert_eq!(error.title, "Signed OpenWrap build required");
+        assert!(error
+            .suggested_fix
+            .as_deref()
+            .is_some_and(|fix| fix.contains("`tauri dev`")));
     }
 
     #[test]

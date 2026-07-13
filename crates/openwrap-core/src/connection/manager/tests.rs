@@ -160,6 +160,7 @@ mod tests {
 
     #[derive(Default)]
     struct FakeBackendState {
+        mode: crate::openvpn::VpnBackendMode,
         queue: VecDeque<QueuedConnect>,
         requests: Vec<ConnectRequest>,
         disconnects: Vec<SessionId>,
@@ -213,9 +214,17 @@ mod tests {
         fn reconcile_count(&self) -> usize {
             self.state.lock().reconcile_requests.len()
         }
+
+        fn set_mode(&self, mode: crate::openvpn::VpnBackendMode) {
+            self.state.lock().mode = mode;
+        }
     }
 
     impl VpnBackend for FakeBackend {
+        fn mode(&self) -> crate::openvpn::VpnBackendMode {
+            self.state.lock().mode
+        }
+
         fn connect(&self, request: ConnectRequest) -> Result<SpawnedSession, AppError> {
             self.state.lock().requests.push(request.clone());
             match self
@@ -437,6 +446,38 @@ mod tests {
             "tls-auth {} 1",
             asset_path.display().to_string().replace(' ', "\\ ")
         )));
+
+        session.tx.send(BackendEvent::Exited(Some(0))).unwrap();
+    }
+
+    #[tokio::test]
+    async fn packet_tunnel_uses_portable_assets_and_never_injects_dns_scripts() {
+        let (manager, backend, profile_id, _, _) = build_manager(CredentialMode::None, None);
+        backend.set_mode(crate::openvpn::VpnBackendMode::PacketTunnel);
+        let session = backend.queue_session(None);
+
+        manager.connect(profile_id.to_string()).await.unwrap();
+
+        let request = backend.last_request().unwrap();
+        let launch_config = fs::read_to_string(&request.config_path).unwrap();
+        assert!(request.openvpn_binary.as_os_str().is_empty());
+        assert!(launch_config.contains("tls-auth assets/tls-auth.key 1"));
+        assert!(request.runtime_dir.join("assets/tls-auth.key").exists());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            let mode = fs::metadata(request.runtime_dir.join("assets/tls-auth.key"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_eq!(mode, 0o600);
+        }
+        assert!(!launch_config.contains("script-security"));
+        assert!(!launch_config.contains("openwrap-dns"));
+        assert_eq!(request.dns_policy, DnsPolicy::SplitDnsPreferred);
+        assert_eq!(request.dns_intent, vec!["DNS 1.1.1.1"]);
 
         session.tx.send(BackendEvent::Exited(Some(0))).unwrap();
     }
@@ -716,6 +757,37 @@ mod tests {
         assert_eq!(
             failed.last_error.as_ref().map(|error| error.code.as_str()),
             Some("auth_failed")
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn system_extension_activation_failures_do_not_retry() {
+        let (manager, backend, profile_id, _, _) = build_manager(CredentialMode::None, None);
+        let session = backend.queue_session(None);
+
+        manager.connect(profile_id.to_string()).await.unwrap();
+        session
+            .tx
+            .send(BackendEvent::Stderr(
+                "System extension activation failed: Missing entitlement com.apple.developer.system-extension.install".into(),
+            ))
+            .unwrap();
+        yield_until(|| manager.snapshot().state == ConnectionState::Error).await;
+        let _ = session.tx.send(BackendEvent::Exited(Some(1)));
+        tokio::time::advance(Duration::from_secs(20)).await;
+        tokio::task::yield_now().await;
+
+        let failed = manager.snapshot();
+        assert_eq!(backend.request_count(), 1);
+        assert_eq!(backend.disconnect_count(), 1);
+        assert_eq!(failed.retry_count, 0);
+        assert_eq!(
+            failed.last_error.as_ref().map(|error| error.code.as_str()),
+            Some("system_extension_unavailable")
+        );
+        assert_eq!(
+            failed.last_error.as_ref().map(|error| error.title.as_str()),
+            Some("Signed OpenWrap build required")
         );
     }
 

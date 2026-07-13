@@ -94,6 +94,17 @@ pub fn handle_log(
                 emit_state_changed = true;
                 session_log.log_core("State transition: Error (auth_failed)");
             }
+            crate::connection::log_parser::ParsedLogSignal::SystemExtensionFailed => {
+                let error = crate::connection::log_parser::system_extension_error(line);
+                let log_file_path = persist_failed_connection_log(paths, &state_guard.logs);
+                apply_terminal_error(&mut state_guard.snapshot, log_file_path, profile_id, error);
+                state_guard.pending_credentials = None;
+                state_guard.reconnect_plan = None;
+                state_guard.active_session = None;
+                disconnect_session = Some(active_session.session_id.clone());
+                emit_state_changed = true;
+                session_log.log_core("State transition: Error (system_extension_unavailable)");
+            }
             crate::connection::log_parser::ParsedLogSignal::RetryableFailure => {
                 if state_guard.snapshot.state != ConnectionState::Disconnecting {
                     state_guard.snapshot.state = ConnectionState::Reconnecting;
@@ -242,7 +253,7 @@ pub fn handle_exit(
         .last_error
         .as_ref()
         .map(|error| error.code.as_str())
-        == Some("auth_failed")
+        .is_some_and(|code| matches!(code, "auth_failed" | "system_extension_unavailable"))
     {
         state_guard.snapshot.state = ConnectionState::Error;
         state_guard.snapshot.substate = None;

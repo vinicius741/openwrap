@@ -186,6 +186,8 @@ mod tests {
                 config_path,
                 auth_file: None,
                 runtime_dir,
+                dns_policy: crate::dns::DnsPolicy::ObserveOnly,
+                dns_intent: Vec::new(),
             })
             .unwrap();
 
@@ -259,6 +261,8 @@ mod tests {
                     config_path,
                     auth_file: None,
                     runtime_dir,
+                    dns_policy: crate::dns::DnsPolicy::ObserveOnly,
+                    dns_intent: Vec::new(),
                 })
                 .unwrap();
         });

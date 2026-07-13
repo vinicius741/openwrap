@@ -28,6 +28,10 @@ pub trait SecretStore: Send + Sync {
 }
 
 pub trait VpnBackend: Send + Sync {
+    fn mode(&self) -> openvpn::VpnBackendMode {
+        openvpn::VpnBackendMode::ExternalProcess
+    }
+
     fn connect(
         &self,
         request: openvpn::ConnectRequest,
