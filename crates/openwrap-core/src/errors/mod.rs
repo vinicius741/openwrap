@@ -86,7 +86,10 @@ impl From<&AppError> for UserFacingError {
                 code: "helper_not_installed".into(),
                 title: "Privileged helper not installed".into(),
                 message: "OpenWrap requires a privileged helper to manage VPN connections.".into(),
-                suggested_fix: Some("Install the helper from Settings or when prompted.".into()),
+                suggested_fix: Some(
+                    "Build OpenWrap, then run `sudo ./scripts/install-helper.sh` from the project directory."
+                        .into(),
+                ),
                 details_safe: Some(message.clone()),
             },
             AppError::OpenVpnLaunch(message) => Self {
