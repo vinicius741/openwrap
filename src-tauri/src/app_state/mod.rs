@@ -1,4 +1,6 @@
 pub mod backend_factory;
+#[cfg(target_os = "macos")]
+pub mod network_extension_backend;
 mod startup;
 
 pub use backend_factory::build_backend;

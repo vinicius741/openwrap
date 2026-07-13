@@ -35,6 +35,10 @@
     ],
     "resources": {
       "../target/release/openwrap-helper": "openwrap-helper-bundled"
+    },
+    "macOS": {
+      "entitlements": "OpenWrap.entitlements",
+      "infoPlist": "Info.plist"
     }
   }
 }

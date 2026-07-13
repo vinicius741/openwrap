@@ -9,9 +9,11 @@ name = "openwrap_app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
+cc = "1"
 tauri-build.workspace = true
 
 [dependencies]
+base64.workspace = true
 chrono.workspace = true
 dirs.workspace = true
 openwrap-core = { path = "../crates/openwrap-core" }
@@ -23,3 +25,7 @@ tauri-plugin-fs.workspace = true
 tauri-plugin-opener.workspace = true
 tokio.workspace = true
 uuid.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+tempfile = "3.27"
