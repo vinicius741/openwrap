@@ -1,4 +1,4 @@
-import type { ConnectionSnapshot, CredentialPrompt, LogEntry, OpenVpnDetection, UserFacingError } from '../../types/ipc'
+import type { ConnectionSnapshot, CredentialPrompt, LogEntry, UserFacingError } from '../../types/ipc'
 import type { UiLogEntry } from '../slices/connectionSlice'
 
 export function reduceConnection(
@@ -52,10 +52,6 @@ export function reduceCredentialPrompt(
   pendingCredentialPrompt: CredentialPrompt | null,
 ): { pendingCredentialPrompt: CredentialPrompt | null } {
   return { pendingCredentialPrompt }
-}
-
-export function reduceDetection(detection: OpenVpnDetection): { detection: OpenVpnDetection } {
-  return { detection }
 }
 
 export function reduceError(error: UserFacingError | null): { error: UserFacingError | null } {

@@ -125,11 +125,6 @@ export interface Settings {
   verbose_logging: boolean
 }
 
-export interface OpenVpnDetection {
-  discovered_paths: string[]
-  selected_path: string | null
-}
-
 export type SessionOutcome = 'success' | 'failed' | 'cancelled' | 'in_progress'
 
 export interface SessionSummary {
@@ -139,11 +134,4 @@ export interface SessionSummary {
   ended_at: string | null
   outcome: SessionOutcome
   log_dir: string
-}
-
-export interface HelperStatus {
-  helperPath: string
-  bundledHelperPath: string | null
-  installed: boolean
-  reason: string | null
 }

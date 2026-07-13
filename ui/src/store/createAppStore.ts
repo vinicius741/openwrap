@@ -20,15 +20,13 @@ import {
   reduceAppendLogs,
 } from './reducers/connectionEvents'
 import { importProfile } from '../features/profiles/api'
-import { updateSettings, detectOpenVpn, installHelper, checkHelperStatus } from '../features/settings/api'
+import { updateSettings } from '../features/settings/api'
 import { normalizeCommandError } from '../lib/tauri'
 import type { ImportWarningState } from '../types/domain'
 import type {
   ConnectionSnapshot,
   CredentialPrompt,
-  HelperStatus,
   LogEntry,
-  OpenVpnDetection,
   ProfileDetail,
   ProfileSummary,
   Settings,
@@ -44,9 +42,6 @@ type AppStore = {
   nextLogId: number
   pendingCredentialPrompt: CredentialPrompt | null
   settings: Settings | null
-  detection: OpenVpnDetection | null
-  helperStatus: HelperStatus | null
-  helperInstalling: boolean
   importWarning: ImportWarningState | null
   error: UserFacingError | null
   loadInitial: () => Promise<void>
@@ -75,12 +70,9 @@ type AppStore = {
   appendLogs: (entries: LogEntry[]) => void
   clearLogs: () => void
   setCredentialPrompt: (prompt: CredentialPrompt | null) => void
-  setDetection: (detection: OpenVpnDetection) => void
   setError: (error: UserFacingError | null) => void
   clearImportWarning: () => void
-  saveSettings: (openvpnPathOverride: string | null, verboseLogging: boolean) => Promise<void>
-  installHelperAction: () => Promise<void>
-  refreshHelperStatus: () => Promise<void>
+  saveSettings: (verboseLogging: boolean) => Promise<void>
 }
 
 export const createAppStore = () => {
@@ -331,40 +323,23 @@ export const createAppStore = () => {
 
       setCredentialPrompt: (pendingCredentialPrompt) => set({ pendingCredentialPrompt, error: null }),
 
-      setDetection: (detection) => set({ detection }),
-
       setError: (error) => set({ error }),
 
       clearImportWarning: () => set({ importWarning: null }),
 
-      saveSettings: async (openvpnPathOverride, verboseLogging) => {
+      saveSettings: async (verboseLogging) => {
         try {
-          const [settings, detection] = await Promise.all([
-            updateSettings({ openvpnPathOverride, verboseLogging }),
-            detectOpenVpn(),
-          ])
-          set({ settings, detection, error: null })
+          // Preserve any stored OpenVPN path override used by the legacy helper
+          // backend. The settings UI no longer edits that field, so null would
+          // wipe non-default install locations on every save.
+          const currentOverride = get().settings?.openvpn_path_override ?? null
+          const settings = await updateSettings({
+            openvpnPathOverride: currentOverride,
+            verboseLogging,
+          })
+          set({ settings, error: null })
         } catch (error) {
           set({ error: normalizeCommandError(error) })
-        }
-      },
-
-      installHelperAction: async () => {
-        set({ helperInstalling: true })
-        try {
-          const status = await installHelper()
-          set({ helperStatus: status, helperInstalling: false, error: null })
-        } catch (error) {
-          set({ helperInstalling: false, error: normalizeCommandError(error) })
-        }
-      },
-
-      refreshHelperStatus: async () => {
-        try {
-          const status = await checkHelperStatus()
-          set({ helperStatus: status })
-        } catch {
-          // non-critical
         }
       },
     }

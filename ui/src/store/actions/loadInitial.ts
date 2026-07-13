@@ -1,8 +1,8 @@
 import { listProfiles, getProfile, getLastSelectedProfile, setLastSelectedProfile } from '../../features/profiles/api'
 import { getConnectionState, getRecentLogs } from '../../features/connection/api'
-import { getSettings, detectOpenVpn, checkHelperStatus } from '../../features/settings/api'
+import { getSettings } from '../../features/settings/api'
 import { normalizeCommandError } from '../../lib/tauri'
-import type { ProfileSummary, ProfileDetail, ConnectionSnapshot, LogEntry, Settings, OpenVpnDetection, HelperStatus, UserFacingError } from '../../types/ipc'
+import type { ProfileSummary, ProfileDetail, ConnectionSnapshot, LogEntry, Settings, UserFacingError } from '../../types/ipc'
 
 export type LoadInitialResult = {
   profiles: ProfileSummary[]
@@ -12,20 +12,16 @@ export type LoadInitialResult = {
   logs: Array<LogEntry & { id: number }>
   nextLogId: number
   settings: Settings | null
-  detection: OpenVpnDetection | null
-  helperStatus: HelperStatus | null
   error: UserFacingError | null
 }
 
 export async function loadInitial(): Promise<LoadInitialResult> {
-  const [profiles, connection, logs, settings, detection, lastSelectedProfileId, helperStatus] = await Promise.all([
+  const [profiles, connection, logs, settings, lastSelectedProfileId] = await Promise.all([
     listProfiles(),
     getConnectionState(),
     getRecentLogs(),
     getSettings(),
-    detectOpenVpn(),
     getLastSelectedProfile(),
-    checkHelperStatus(),
   ])
 
   const selectedProfileId =
@@ -42,8 +38,6 @@ export async function loadInitial(): Promise<LoadInitialResult> {
     logs: logs.map((entry, index) => ({ ...entry, id: index + 1 })),
     nextLogId: logs.length,
     settings,
-    detection,
-    helperStatus,
     error: null as UserFacingError | null,
   }
 
