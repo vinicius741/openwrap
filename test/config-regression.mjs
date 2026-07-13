@@ -99,6 +99,96 @@ describe('src-tauri/tauri.conf.json', () => {
       'frontendDist must point to the UI build output',
     )
   })
+
+  it('builds and bundles the privileged helper as a legacy resource', () => {
+    assert.equal(
+      config.build?.beforeBuildCommand,
+      'cargo build -p openwrap-helper --release && npm run build --workspace ui',
+    )
+    assert.equal(
+      config.bundle?.resources?.['../target/release/openwrap-helper'],
+      'openwrap-helper-bundled',
+    )
+  })
+
+  it('configures macOS Packet Tunnel entitlements and Info.plist merge', () => {
+    assert.equal(config.bundle?.macOS?.entitlements, 'OpenWrap.entitlements')
+    assert.equal(config.bundle?.macOS?.infoPlist, 'Info.plist')
+    assert.ok(
+      existsSync(resolve(root, 'src-tauri', 'OpenWrap.entitlements')),
+      'host entitlements file must exist',
+    )
+    assert.ok(
+      existsSync(resolve(root, 'src-tauri', 'Info.plist')),
+      'host Info.plist merge file must exist',
+    )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Hobby constraint: default helper path must stay free (no paid Apple NE).
+// Packet Tunnel may exist as opt-in code but must never become the default
+// without an explicit maintainer decision to pay for Developer Program NE.
+// ---------------------------------------------------------------------------
+describe('hobby backend constraint (helper default)', () => {
+  const packageJson = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf-8'))
+  const readme = readFileSync(resolve(root, 'README.md'), 'utf-8')
+  const agents = readFileSync(resolve(root, 'AGENTS.md'), 'utf-8')
+  const signedScript = resolve(root, 'scripts', 'build-signed-app.sh')
+  const backendFactory = readFileSync(
+    resolve(root, 'src-tauri', 'src', 'app_state', 'backend_factory.rs'),
+    'utf-8',
+  )
+
+  it('documents the intentional hobby / no paid Apple fee constraint', () => {
+    assert.match(agents, /Hobby constraint/)
+    assert.match(agents, /will not pay|will \*\*not\*\* pay/i)
+    assert.match(backendFactory, /hobby project/i)
+    // Module docs may use markdown bold: will **not** pay
+    assert.match(backendFactory, /will \*\*not\*\* pay|will not pay/i)
+    assert.match(readme, /Hobby project|hobby/i)
+  })
+
+  it('keeps Packet Tunnel signed tooling available but opt-in', () => {
+    assert.equal(packageJson.scripts?.['tauri:build:signed'], './scripts/build-signed-app.sh')
+    assert.ok(existsSync(signedScript), 'scripts/build-signed-app.sh must exist')
+    const content = readFileSync(signedScript, 'utf-8')
+    assert.match(content, /build-network-extension\.sh/)
+    assert.match(content, /SystemExtensions/)
+    assert.match(content, /app\.openwrap\.desktop\.PacketTunnel\.systemextension/)
+  })
+
+  it('defaults to the free helper backend; Packet Tunnel is opt-in only', () => {
+    assert.match(backendFactory, /HelperOpenVpnBackend/)
+    assert.match(backendFactory, /NetworkExtensionBackend/)
+    assert.match(backendFactory, /prefer_packet_tunnel_backend|OPENWRAP_VPN_BACKEND/)
+    // Default must not select Packet Tunnel without an explicit env opt-in.
+    assert.match(backendFactory, /Err\(_\) => false/)
+  })
+
+  it('documents both the helper hobby path and optional signed Packet Tunnel builds', () => {
+    assert.match(readme, /helper|Helper/)
+    assert.match(readme, /Packet Tunnel|tauri:build:signed/)
+  })
+})
+
+describe('privileged helper installation', () => {
+  const readme = readFileSync(resolve(root, 'README.md'), 'utf-8')
+  const installScript = resolve(root, 'scripts', 'install-helper.sh')
+
+  it('documents the explicit sudo installation command', () => {
+    assert.match(readme, /sudo \.\/scripts\/install-helper\.sh/)
+  })
+
+  it('ships a path-checked helper installer script', () => {
+    assert.ok(existsSync(installScript), 'scripts/install-helper.sh must exist')
+    const content = readFileSync(installScript, 'utf-8')
+    assert.match(content, /\/Library\/PrivilegedHelperTools/)
+    assert.match(content, /-m 4755/)
+    assert.match(content, /openwrap-helper/)
+    assert.match(content, /target\//)
+    assert.match(content, /Refusing to install/)
+  })
 })
 
 // ---------------------------------------------------------------------------
