@@ -21,14 +21,6 @@ impl TrayVisualState {
         }
     }
 
-    fn title(self) -> &'static str {
-        match self {
-            Self::Disconnected => "VPN OFF",
-            Self::Connecting => "VPN …",
-            Self::Connected => "VPN ON",
-        }
-    }
-
     fn menu_status(self) -> &'static str {
         match self {
             Self::Disconnected => "VPN: Disconnected",
@@ -59,7 +51,6 @@ pub fn apply_tray_state(
             _ => "OpenWrap".into(),
         };
         let _ = tray.set_tooltip(Some(tooltip));
-        let _ = tray.set_title(Some(visual_state.title()));
         let icon = match visual_state {
             TrayVisualState::Disconnected => include_image!("icons/tray-disconnected.png"),
             TrayVisualState::Connecting => include_image!("icons/tray-connecting.png"),
