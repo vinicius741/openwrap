@@ -6,6 +6,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 OpenWrap is a macOS desktop client for OpenVPN profiles built with Tauri 2. It combines a React frontend (`ui/`) with a Rust backend (`src-tauri/` and `crates/openwrap-core/`).
 
+## Hobby constraint (intentional — not a bug)
+
+OpenWrap is a **personal hobby project**. The maintainer **will not pay** the Apple Developer Program fee for Network Extension / Packet Tunnel signing.
+
+- **Default backend:** setuid `openwrap-helper` + OpenVPN community client (free path).
+- **Packet Tunnel:** optional code only; opt-in via `OPENWRAP_VPN_BACKEND=packet-tunnel`; needs paid Apple NE entitlements.
+- Do **not** make Packet Tunnel the default, require paid signing for connect, or flag “helper instead of NE” as incomplete in reviews.
+
+Full detail: `AGENTS.md` (“Hobby constraint”), `src-tauri/src/app_state/backend_factory.rs`.
+
 ## Development Commands
 
 ```bash

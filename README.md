@@ -6,21 +6,24 @@
 
 OpenWrap is a lightweight macOS desktop client for OpenVPN profiles. Built with Tauri 2, it combines a React frontend with a Rust core that handles validation, import, persistence, secrets, and connection orchestration.
 
+**Hobby project:** the default VPN path uses a free setuid helper and the OpenVPN community client so you **do not** need a paid Apple Developer Program membership. An optional Packet Tunnel / Network Extension backend exists in the tree but is **opt-in only** (requires paid NE entitlements). That split is intentional — see `AGENTS.md` (“Hobby constraint”) and [Helper Setup](docs/helper-setup.md).
+
 ## Features
 
 - **Profile Management** — Import, validate, store, and list OpenVPN profiles
 - **macOS Integration** — Native system tray with connection state and profile selection
 - **Secure Storage** — Native macOS Keychain storage for remembered usernames, plus app-local generated-password secrets for opt-in PIN+TOTP profiles
-- **DNS Observation** — Surface DNS from profile intent and OpenVPN runtime pushes
+- **DNS Management** — Apply full or split DNS with crash-recovery reconciliation (helper path)
 - **Session Logging** — Persistent logs for debugging connection issues, organized by date
-- **Privileged Helper** — Secure OpenVPN execution via setuid helper wrapper
+- **Privileged Helper** — Launch the OpenVPN community client without paid Apple entitlements
+- **Optional Packet Tunnel** — System extension path when you have paid Network Extension signing
 
 ## Prerequisites
 
 - macOS (primary platform)
 - [Rust](https://rustup.rs/) (edition 2021)
 - [Node.js](https://nodejs.org/) 18+ and npm
-- [OpenVPN](https://openvpn.net/) (community binary)
+- [OpenVPN](https://openvpn.net/community-downloads/) community client (`brew install openvpn`) for the default helper path
 
 ## Development Setup
 
@@ -34,27 +37,35 @@ npm install
 cargo install tauri-cli --version "^2.0.0" --locked
 ```
 
-### 2. Build the Privileged Helper
-
-The helper wrapper is required to launch OpenVPN with root privileges. For development, build it and point the app at it:
+### 2. Build OpenWrap and the helper
 
 ```bash
-cargo build -p openwrap-helper
+npm run tauri:build
 ```
 
-### 3. Configure Environment
+### 3. Install the privileged helper
+
+This is the only step that needs administrator privileges (one-time / after helper rebuilds):
 
 ```bash
-source .env
+sudo ./scripts/install-helper.sh
 ```
 
-When the app needs privileged access, click **Install helper** in Settings or from the connection error banner. macOS will ask for your password or Touch ID and OpenWrap will set the helper ownership and setuid bit from inside the app.
+The installer only accepts `openwrap-helper` under the repository `target/` tree and installs it as `root:wheel` mode `4755`. Details: [Helper Setup](docs/helper-setup.md).
 
-### 4. Start Development Server
+### 4. Start the app
 
 ```bash
 npm run tauri:dev
+# or open the built bundle:
+open target/release/bundle/macos/OpenWrap.app
 ```
+
+OpenWrap detects Homebrew OpenVPN at `/opt/homebrew/sbin/openvpn` or `/usr/local/sbin/openvpn`.
+
+### Optional: Packet Tunnel (paid Apple program)
+
+Requires Network Extension entitlements. See [Packet Tunnel Setup](docs/packet-tunnel-setup.md).
 
 ## Build the App Bundle
 
@@ -62,7 +73,7 @@ npm run tauri:dev
 npm run tauri:build
 ```
 
-The app bundle is created at `target/release/bundle/macos/OpenWrap.app`. You can drag or copy it to `/Applications`. On first use, open Settings and click **Install helper** to install the bundled helper into `/Library/PrivilegedHelperTools`.
+The app bundle is created at `target/release/bundle/macos/OpenWrap.app`. No Apple Developer Program membership is required for the default helper path. After rebuilding the helper, rerun `sudo ./scripts/install-helper.sh`.
 
 ## Scripts
 
@@ -71,8 +82,10 @@ The app bundle is created at `target/release/bundle/macos/OpenWrap.app`. You can
 | `npm run dev` | Start React dev server (UI only) |
 | `npm run build` | Build the React frontend |
 | `npm run tauri:dev` | Start Tauri development server |
-| `npm run tauri:build` | Build the release `.app` bundle |
-| `npm test` | Run dev server and dependency config regression tests |
+| `npm run tauri:build` | Build the app and bundled privileged helper |
+| `npm run tauri:build:signed` | Optional: signed Packet Tunnel build (paid Apple NE) |
+| `sudo ./scripts/install-helper.sh` | Install or update the helper after a build |
+| `npm test` | Run config regression tests |
 | `npm run cargo:test` | Run Rust tests for openwrap-core |
 | `npm run check` | Build UI and run Rust tests |
 
@@ -82,9 +95,10 @@ The app bundle is created at `target/release/bundle/macos/OpenWrap.app`. You can
 OpenWrap
 ├── ui/                    # React frontend (IPC contracts only)
 ├── src-tauri/             # Tauri commands, events, tray lifecycle
+│   └── native/macos/      # Optional Packet Tunnel host bridge + provider
 └── crates/
     ├── openwrap-core/     # Business logic, traits, connection manager
-    └── openwrap-helper/   # Privileged OpenVPN wrapper (macOS)
+    └── openwrap-helper/   # Root-owned OpenVPN launcher and DNS reconciler
 ```
 
 The core crate defines traits for secret storage and VPN process launching, keeping the Tauri layer thin and the connection manager testable.
@@ -93,7 +107,8 @@ The core crate defines traits for secret storage and VPN process launching, keep
 
 - [Architecture Overview](docs/architecture.md) — Layer responsibilities and design
 - [Security Model](docs/security-model.md) — Credential handling and trust boundaries
-- [Helper Setup](docs/helper-setup.md) — Privileged wrapper configuration
+- [Helper Setup](docs/helper-setup.md) — Default privileged helper installation
+- [Packet Tunnel Setup](docs/packet-tunnel-setup.md) — Optional Network Extension path (paid Apple NE)
 - [Profile Import](docs/profile-import.md) — Import flow and validation
 - [Roadmap](docs/roadmap.md) — Planned features and improvements
 

@@ -1,40 +1,55 @@
 # Helper Setup
 
-OpenWrap's macOS path uses `openwrap-helper` as a minimal privileged wrapper around the OpenVPN community binary.
+OpenWrap's **default** macOS backend uses `openwrap-helper` as a minimal privileged wrapper around the OpenVPN community binary.
 
-## Automatic installation (recommended)
+## Why the helper is the default (product decision)
 
-When the app detects the helper is not installed (missing root ownership or setuid bit), it will prompt you to install it:
+This is a **hobby project**. The maintainer **does not pay** the Apple Developer Program fee for Network Extension / system-extension signing. Apple does not allow third-party Packet Tunnel system extensions to activate from free, ad-hoc, or unsigned builds.
 
-1. Click **Connect** on a profile — if the helper is not installed, an error banner appears with an **Install helper** button.
-2. Click **Install helper** — macOS prompts for your password or Touch ID.
-3. After authentication, OpenWrap copies the bundled helper into `/Library/PrivilegedHelperTools/app.openwrap.desktop.openwrap-helper` and configures root ownership plus the setuid bit.
+So the supported day-to-day path is:
 
-You can also install from **Settings** — the Privileged Helper section shows the current status and an install button.
+1. Build the app (no paid certificate required).
+2. Install the setuid helper once with `sudo` (the only elevated step).
+3. Connect using the OpenVPN community binary (e.g. Homebrew).
 
-Release builds bundle the helper automatically:
+**Reviewers and agents:** do not reclassify this as “incomplete Packet Tunnel migration” or switch the default to Network Extension. That would make normal hobby installs unable to connect. See also `AGENTS.md` (“Hobby constraint”) and `src-tauri/src/app_state/backend_factory.rs`.
+
+The optional Packet Tunnel path needs paid Apple entitlements; see [Packet Tunnel Setup](packet-tunnel-setup.md). Opt into it only when you have those:
 
 ```bash
-npm run tauri:build
+export OPENWRAP_VPN_BACKEND=packet-tunnel
 ```
 
-The app bundle is written to `target/release/bundle/macos/OpenWrap.app`. Drag or copy it to `/Applications`, launch it, then install the helper from inside the app. OpenVPN itself is still an external dependency; install it separately or set its path in Settings.
+Optional custom helper path (must still be root-owned and setuid):
 
-## Manual installation (development)
+```bash
+export OPENWRAP_HELPER_PATH=/path/to/openwrap-helper
+```
 
-Development setup:
+## Manual installation
 
-1. Build the helper:
-   `cargo build -p openwrap-helper`
-2. The `.env` file in the project root sets `OPENWRAP_HELPER_PATH` automatically.
-   Source it before running:
-   `source .env`
-3. Install the helper from inside the app. In development mode, OpenWrap uses `OPENWRAP_HELPER_PATH` and applies the required ownership and setuid bit after macOS authorization.
+Build the app and helper without elevated privileges, then run the installer yourself from the repository root:
+
+```bash
+cargo build -p openwrap-helper --release
+# or: npm run tauri:build
+sudo ./scripts/install-helper.sh
+```
+
+Only the installer command requires `sudo`. Rerun it whenever `openwrap-helper` changes. The installer only accepts a binary named `openwrap-helper` under the repository `target/` tree.
+
+## Development
+
+1. Build the release helper: `cargo build -p openwrap-helper --release`.
+2. Install it: `sudo ./scripts/install-helper.sh`.
+3. Start the app: `npm run tauri:dev` (or open a normal unsigned build).
+
+If `OPENWRAP_HELPER_PATH` is set, the app uses that path instead of the system installation. The path must still be root-owned and setuid. Note: `.env` is not loaded when you launch the app from Finder/Applications — only process environment variables apply.
 
 Verification:
 
 1. Confirm the helper metadata:
-   `ls -l target/debug/openwrap-helper` for development, or `ls -l /Library/PrivilegedHelperTools/app.openwrap.desktop.openwrap-helper` for release.
+   `ls -l /Library/PrivilegedHelperTools/app.openwrap.desktop.openwrap-helper`.
    The mode should include `s` in the user-execute position and the owner should be `root`.
 2. Run:
    `cargo check -p openwrap-helper`
