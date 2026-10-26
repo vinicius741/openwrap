@@ -24,6 +24,7 @@
 @import './features/config.css';
 @import './features/logs.css';
 @import './features/settings.css';
+@import './features/updates.css';
 
 /* ── Shared states & typography ── */
 @import './states/errors.css';

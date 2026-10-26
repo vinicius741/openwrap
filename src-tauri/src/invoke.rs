@@ -23,6 +23,9 @@ macro_rules! invoke_handlers {
             $crate::commands::logs::reveal_logs_folder,
             $crate::commands::logs::get_recent_sessions,
             $crate::commands::logs::cleanup_old_logs,
+            $crate::commands::updates::check_for_update,
+            $crate::commands::updates::install_update,
+            $crate::commands::updates::get_app_info,
         ]
     };
 }

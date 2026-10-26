@@ -5,6 +5,8 @@ import { TopBar } from '../components/TopBar'
 import { ProfileDetail } from '../features/profiles/ProfileDetail'
 import { SettingsView } from '../features/settings/SettingsView'
 import { useConnectionEvents } from '../features/connection/useConnectionEvents'
+import { HelperOutdatedBanner, UpdateBanner } from '../features/updates/UpdateBanner'
+import { useUpdateEvents } from '../features/updates/useUpdateEvents'
 import { useAppStore } from '../store/appStore'
 
 export function App() {
@@ -16,6 +18,7 @@ export function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
 
   useConnectionEvents()
+  useUpdateEvents()
 
   useEffect(() => {
     void loadInitial()
@@ -33,6 +36,8 @@ export function App() {
         </aside>
 
         <main className="content">
+          <UpdateBanner />
+          <HelperOutdatedBanner />
           {error ? (
             <div className="error-banner app-error-banner">
               <div>

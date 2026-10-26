@@ -3,6 +3,7 @@ import { profileInitialState } from './slices/profileSlice'
 import { connectionInitialState, type UiLogEntry } from './slices/connectionSlice'
 import { settingsInitialState } from './slices/settingsSlice'
 import { importInitialState } from './slices/importSlice'
+import { updateInitialState, type UpdateSlice } from './slices/updateSlice'
 import { loadInitial } from './actions/loadInitial'
 import {
   selectProfile,
@@ -21,6 +22,7 @@ import {
 } from './reducers/connectionEvents'
 import { importProfile } from '../features/profiles/api'
 import { updateSettings } from '../features/settings/api'
+import { checkForUpdate, getAppInfo, installUpdate } from '../features/updates/api'
 import { normalizeCommandError } from '../lib/tauri'
 import type { ImportWarningState } from '../types/domain'
 import type {
@@ -30,10 +32,11 @@ import type {
   ProfileDetail,
   ProfileSummary,
   Settings,
+  UpdateProgress,
   UserFacingError,
 } from '../types/ipc'
 
-type AppStore = {
+type AppStore = UpdateSlice & {
   profiles: ProfileSummary[]
   selectedProfileId: string | null
   selectedProfile: ProfileDetail | null
@@ -73,6 +76,12 @@ type AppStore = {
   setError: (error: UserFacingError | null) => void
   clearImportWarning: () => void
   saveSettings: (verboseLogging: boolean) => Promise<void>
+  loadAppInfo: () => Promise<void>
+  /** `manual` surfaces errors and "up to date"; the startup check stays silent. */
+  checkForUpdates: (manual: boolean) => Promise<void>
+  installUpdate: () => Promise<void>
+  setUpdateProgress: (progress: UpdateProgress) => void
+  dismissUpdateBanner: () => void
 }
 
 export const createAppStore = () => {
@@ -102,6 +111,7 @@ export const createAppStore = () => {
       ...connectionInitialState,
       ...settingsInitialState,
       ...importInitialState,
+      ...updateInitialState,
       error: null,
       loadInitial: async () => {
         try {
@@ -342,6 +352,46 @@ export const createAppStore = () => {
           set({ error: normalizeCommandError(error) })
         }
       },
+
+      loadAppInfo: async () => {
+        try {
+          set({ appInfo: await getAppInfo() })
+        } catch {
+          // Version/helper info is cosmetic; never block the app on it.
+        }
+      },
+
+      checkForUpdates: async (manual) => {
+        if (get().updateStatus === 'checking' || get().updateStatus === 'installing') return
+        set({ updateStatus: 'checking', updateError: null })
+        try {
+          const availableUpdate = await checkForUpdate()
+          set({
+            availableUpdate,
+            updateStatus: availableUpdate ? 'available' : 'up_to_date',
+            updateBannerDismissed: false,
+          })
+        } catch (error) {
+          set({
+            updateStatus: manual ? 'error' : 'idle',
+            updateError: manual ? normalizeCommandError(error) : null,
+          })
+        }
+      },
+
+      installUpdate: async () => {
+        set({ updateStatus: 'installing', updateProgress: null, updateError: null })
+        try {
+          // On success the backend restarts the app, so this rarely returns.
+          await installUpdate()
+        } catch (error) {
+          set({ updateStatus: 'error', updateError: normalizeCommandError(error) })
+        }
+      },
+
+      setUpdateProgress: (updateProgress) => set({ updateProgress }),
+
+      dismissUpdateBanner: () => set({ updateBannerDismissed: true }),
     }
   })
 }

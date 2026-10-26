@@ -135,3 +135,23 @@ export interface SessionSummary {
   outcome: SessionOutcome
   log_dir: string
 }
+
+export interface UpdateInfo {
+  current_version: string
+  version: string
+  notes: string | null
+  date: string | null
+}
+
+export interface UpdateProgress {
+  downloaded: number
+  total: number | null
+}
+
+export type HelperStatus = 'current' | 'outdated' | 'missing' | 'unknown'
+
+export interface AppInfo {
+  version: string
+  helper_status: HelperStatus
+  helper_install_command: string | null
+}

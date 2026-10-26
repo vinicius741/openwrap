@@ -88,6 +88,8 @@ The app bundle is created at `target/release/bundle/macos/OpenWrap.app`. No Appl
 | `npm test` | Run config regression tests |
 | `npm run cargo:test` | Run Rust tests for openwrap-core |
 | `npm run check` | Build UI and run Rust tests |
+| `scripts/release.sh 0.3.0 "notes"` | Tag a release; GitHub Actions builds and publishes it (in-app updates) |
+| `scripts/build-share-package.sh` | Build and package locally into `~/Desktop/OpenWrap-Release/` |
 
 ## Architecture
 
@@ -110,6 +112,7 @@ The core crate defines traits for secret storage and VPN process launching, keep
 - [Helper Setup](docs/helper-setup.md) — Default privileged helper installation
 - [Packet Tunnel Setup](docs/packet-tunnel-setup.md) — Optional Network Extension path (paid Apple NE)
 - [Profile Import](docs/profile-import.md) — Import flow and validation
+- [Releases and Updates](docs/releases.md) — GitHub Actions release, in-app updater, signing key
 - [Roadmap](docs/roadmap.md) — Planned features and improvements
 
 ## Security
