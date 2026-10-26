@@ -3,9 +3,7 @@ dist/
 target/
 target-user/
 .DS_Store
-Cargo.lock
 pnpm-lock.yaml
-package-lock.json
 *.db
 *.db-shm
 *.db-wal
