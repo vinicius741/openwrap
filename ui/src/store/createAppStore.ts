@@ -22,7 +22,7 @@ import {
 } from './reducers/connectionEvents'
 import { importProfile } from '../features/profiles/api'
 import { getRuntimeDependencies, installRuntimeDependencies, updateSettings } from '../features/settings/api'
-import { checkForUpdate, getAppInfo, installUpdate } from '../features/updates/api'
+import { checkForUpdate, getAppInfo, installHelper, installUpdate } from '../features/updates/api'
 import { normalizeCommandError } from '../lib/tauri'
 import type { ImportWarningState } from '../types/domain'
 import type {
@@ -79,6 +79,7 @@ type AppStore = UpdateSlice & SettingsSlice & {
   checkRuntimeDependencies: () => Promise<void>
   installRuntimeDependencies: () => Promise<void>
   loadAppInfo: () => Promise<void>
+  installHelper: () => Promise<void>
   /** `manual` surfaces errors and "up to date"; the startup check stays silent. */
   checkForUpdates: (manual: boolean) => Promise<void>
   installUpdate: () => Promise<void>
@@ -390,6 +391,11 @@ export const createAppStore = () => {
         } catch {
           // Version/helper info is cosmetic; never block the app on it.
         }
+      },
+
+      installHelper: async () => {
+        const appInfo = await installHelper()
+        if (appInfo) set({ appInfo })
       },
 
       checkForUpdates: async (manual) => {

@@ -12,3 +12,7 @@ export async function installUpdate() {
 export async function getAppInfo() {
   return invokeCommand<AppInfo>('get_app_info')
 }
+
+export async function installHelper() {
+  return invokeCommand<AppInfo | null>('install_helper')
+}

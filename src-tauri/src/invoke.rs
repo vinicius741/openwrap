@@ -28,6 +28,7 @@ macro_rules! invoke_handlers {
             $crate::commands::updates::check_for_update,
             $crate::commands::updates::install_update,
             $crate::commands::updates::get_app_info,
+            $crate::commands::helper::install_helper,
         ]
     };
 }

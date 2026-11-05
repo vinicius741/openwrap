@@ -9,7 +9,7 @@ This is a **hobby project**. The maintainer **does not pay** the Apple Developer
 So the supported day-to-day path is:
 
 1. Build the app (no paid certificate required).
-2. Install the setuid helper once with `sudo` (the only elevated step).
+2. Install the setuid helper using the app's macOS authorization prompt or the manual `sudo` command below.
 3. Connect using the OpenVPN community binary (e.g. Homebrew).
 
 **Reviewers and agents:** do not reclassify this as “incomplete Packet Tunnel migration” or switch the default to Network Extension. That would make normal hobby installs unable to connect. See also `AGENTS.md` (“Hobby constraint”) and `src-tauri/src/app_state/backend_factory.rs`.
@@ -41,7 +41,17 @@ setup finishes. A failed or cancelled dependency installation stops setup; rerun
 `Setup.command` to retry.
 
 The in-app dependency installer does not install or replace the privileged helper.
-Use the shared setup or the manual helper installation below for that step.
+Use the helper button described below, the shared setup, or the manual helper installation for that step.
+
+## Install or update the helper from the app
+
+Packaged builds include the helper. If it is missing, outdated, or has incorrect permissions, OpenWrap shows an **Install helper** or **Update helper** button.
+
+Click the button and approve the native macOS dialog with an administrator account. OpenWrap never receives or stores that password. The app installs its bundled helper at `/Library/PrivilegedHelperTools/app.openwrap.desktop.openwrap-helper` with root ownership and mode `4755`, then verifies its contents and permissions. You can connect immediately without reopening the app.
+
+Cancelling the dialog leaves the helper unchanged. If installation fails, the notice shows the error and lets you retry. This works with unsigned and ad-hoc builds and does not require Apple Developer Program membership.
+
+Development builds without a bundled helper and installations using `OPENWRAP_HELPER_PATH` use the manual procedure below.
 
 ## Manual helper installation
 

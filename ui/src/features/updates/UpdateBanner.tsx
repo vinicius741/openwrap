@@ -1,6 +1,8 @@
 import { useState } from 'react'
 
+import { normalizeCommandError } from '../../lib/tauri'
 import { useAppStore } from '../../store/appStore'
+import type { UserFacingError } from '../../types/ipc'
 import { formatUpdateProgress } from './format'
 
 export function UpdateBanner() {
@@ -67,18 +69,24 @@ export function UpdateBanner() {
 
 export function HelperOutdatedBanner() {
   const appInfo = useAppStore((state) => state.appInfo)
-  const [copied, setCopied] = useState(false)
+  const installHelper = useAppStore((state) => state.installHelper)
+  const [installing, setInstalling] = useState(false)
+  const [error, setError] = useState<UserFacingError | null>(null)
   const [dismissed, setDismissed] = useState(false)
 
-  if (!appInfo?.helper_install_command || dismissed) return null
+  if (!appInfo?.helper_install_available || dismissed) return null
   if (appInfo.helper_status !== 'outdated' && appInfo.helper_status !== 'missing') return null
 
-  const copy = async () => {
+  const install = async () => {
+    if (installing) return
+    setInstalling(true)
+    setError(null)
     try {
-      await navigator.clipboard.writeText(appInfo.helper_install_command ?? '')
-      setCopied(true)
-    } catch {
-      setCopied(false)
+      await installHelper()
+    } catch (error) {
+      setError(normalizeCommandError(error))
+    } finally {
+      setInstalling(false)
     }
   }
 
@@ -88,22 +96,24 @@ export function HelperOutdatedBanner() {
         <strong>
           {appInfo.helper_status === 'missing'
             ? 'The OpenWrap helper is not installed'
-            : 'The OpenWrap helper needs to be reinstalled'}
+            : 'The OpenWrap helper needs an update'}
         </strong>
         <p>
           {appInfo.helper_status === 'missing'
             ? 'OpenWrap needs its privileged helper to start OpenVPN.'
-            : 'This version of OpenWrap ships a newer helper.'}{' '}
-          Run this command in Terminal once (it asks for your Mac password), then reopen OpenWrap:
+            : 'This version of OpenWrap needs to update or repair its helper.'}{' '}
+          {installing
+            ? 'Waiting for macOS authorization. Approve the installation in the system dialog.'
+            : 'macOS will ask for an administrator password to install it. You can connect as soon as it finishes.'}
         </p>
-        <code className="update-command">{appInfo.helper_install_command}</code>
+        {error ? <p className="error-text" role="alert">{error.message}</p> : null}
       </div>
       <div className="error-banner-actions">
-        <button className="action-button action-primary" onClick={() => void copy()} type="button">
-          {copied ? 'Copied' : 'Copy command'}
+        <button className="action-button action-primary" disabled={installing} onClick={() => void install()} type="button">
+          {installing ? 'Installing…' : appInfo.helper_status === 'missing' ? 'Install helper' : 'Update helper'}
         </button>
-        <button className="action-button action-secondary" onClick={() => setDismissed(true)} type="button">
-          Dismiss
+        <button className="action-button action-secondary" disabled={installing} onClick={() => setDismissed(true)} type="button">
+          Later
         </button>
       </div>
     </div>

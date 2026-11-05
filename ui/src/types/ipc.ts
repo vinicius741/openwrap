@@ -157,5 +157,5 @@ export type HelperStatus = 'current' | 'outdated' | 'missing' | 'unknown'
 export interface AppInfo {
   version: string
   helper_status: HelperStatus
-  helper_install_command: string | null
+  helper_install_available: boolean
 }

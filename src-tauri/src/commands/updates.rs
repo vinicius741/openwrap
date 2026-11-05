@@ -6,11 +6,11 @@
 //! `tauri.conf.json`.
 //!
 //! The setuid helper in `/Library/PrivilegedHelperTools` is NOT replaced by an
-//! update (installing it needs `sudo`; see `scripts/share/setup.sh`).
+//! update. Installing it requires a separate macOS authorization prompt.
 //! `get_app_info` reports when the installed helper differs from the one bundled
-//! in the running app so the UI can show the reinstall command.
+//! in the running app so the UI can offer to install it.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Mutex;
 
 use serde::Serialize;
@@ -25,7 +25,7 @@ use crate::app_state::AppState;
 use crate::error::CommandError;
 use crate::events::UPDATE_DOWNLOAD_PROGRESS;
 
-const BUNDLED_HELPER_RESOURCE: &str = "openwrap-helper-bundled";
+use super::helper::bundled_helper_path;
 
 /// Update found by the last `check_for_update`, consumed by `install_update`.
 #[derive(Default)]
@@ -48,9 +48,9 @@ pub struct UpdateProgress {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HelperStatus {
-    /// Installed helper is byte-identical to the one bundled in this app.
+    /// Installed helper matches the bundled bytes and required root/setuid metadata.
     Current,
-    /// Installed helper differs from the bundled one (app was updated).
+    /// Installed helper differs from the bundled one or needs permission repair.
     Outdated,
     /// No helper installed at the expected path.
     Missing,
@@ -62,8 +62,7 @@ pub enum HelperStatus {
 pub struct AppInfo {
     pub version: String,
     pub helper_status: HelperStatus,
-    /// Shell command that installs the bundled helper, when one is bundled.
-    pub helper_install_command: Option<String>,
+    pub helper_install_available: bool,
 }
 
 fn update_error(title: &str, error: impl std::fmt::Display) -> CommandError {
@@ -147,14 +146,10 @@ pub async fn install_update(
 
 #[tauri::command]
 pub fn get_app_info(app: AppHandle) -> AppInfo {
-    let bundled_helper = app
-        .path()
-        .resource_dir()
-        .ok()
-        .map(|dir| dir.join(BUNDLED_HELPER_RESOURCE))
-        .filter(|path| path.is_file());
+    let bundled_helper = bundled_helper_path(&app);
+    let custom_helper = std::env::var_os("OPENWRAP_HELPER_PATH").is_some();
 
-    let helper_status = if std::env::var_os("OPENWRAP_HELPER_PATH").is_some() {
+    let helper_status = if custom_helper {
         HelperStatus::Unknown
     } else {
         helper_status(bundled_helper.as_deref(), &installed_helper_path())
@@ -163,7 +158,9 @@ pub fn get_app_info(app: AppHandle) -> AppInfo {
     AppInfo {
         version: app.package_info().version.to_string(),
         helper_status,
-        helper_install_command: bundled_helper.map(|path| helper_install_command(&path)),
+        helper_install_available: cfg!(target_os = "macos")
+            && !custom_helper
+            && bundled_helper.is_some(),
     }
 }
 
@@ -173,6 +170,9 @@ fn helper_status(bundled: Option<&Path>, installed: &Path) -> HelperStatus {
     };
     if !installed.exists() {
         return HelperStatus::Missing;
+    }
+    if !helper_permissions_valid(installed) {
+        return HelperStatus::Outdated;
     }
     match (file_digest(bundled), file_digest(installed)) {
         (Some(a), Some(b)) if a == b => HelperStatus::Current,
@@ -187,14 +187,26 @@ fn file_digest(path: &Path) -> Option<Vec<u8>> {
         .map(|bytes| Sha256::digest(bytes).to_vec())
 }
 
-/// Same install layout as `scripts/share/setup.sh`.
-fn helper_install_command(bundled: &Path) -> String {
-    let destination: PathBuf = installed_helper_path();
-    format!(
-        "sudo /usr/bin/install -o root -g wheel -m 4755 '{}' '{}'",
-        bundled.display().to_string().replace('\'', r"'\''"),
-        destination.display()
-    )
+#[cfg(unix)]
+fn helper_permissions_valid(installed: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+
+    std::fs::symlink_metadata(installed)
+        .map(|metadata| {
+            metadata.is_file()
+                && valid_helper_metadata(metadata.uid(), metadata.gid(), metadata.mode())
+        })
+        .unwrap_or(false)
+}
+
+#[cfg(unix)]
+fn valid_helper_metadata(uid: u32, gid: u32, mode: u32) -> bool {
+    uid == 0 && gid == 0 && mode & 0o7777 == 0o4755
+}
+
+#[cfg(not(unix))]
+fn helper_permissions_valid(_installed: &Path) -> bool {
+    false
 }
 
 #[cfg(test)]
@@ -208,7 +220,10 @@ mod tests {
         let installed = dir.path().join("installed");
         std::fs::write(&bundled, b"v2").unwrap();
 
-        assert!(matches!(helper_status(None, &installed), HelperStatus::Unknown));
+        assert!(matches!(
+            helper_status(None, &installed),
+            HelperStatus::Unknown
+        ));
         assert!(matches!(
             helper_status(Some(&bundled), &installed),
             HelperStatus::Missing
@@ -221,16 +236,21 @@ mod tests {
         ));
 
         std::fs::write(&installed, b"v2").unwrap();
+        assert_eq!(file_digest(&bundled), file_digest(&installed));
+        // Identical contents alone do not make a user-owned helper usable.
         assert!(matches!(
             helper_status(Some(&bundled), &installed),
-            HelperStatus::Current
+            HelperStatus::Outdated
         ));
     }
 
     #[test]
-    fn install_command_quotes_app_path() {
-        let command = helper_install_command(Path::new("/Applications/My 'App'.app/x"));
-        assert!(command.starts_with("sudo /usr/bin/install -o root -g wheel -m 4755 '"));
-        assert!(command.contains(r"My '\''App'\''.app"));
+    #[cfg(unix)]
+    fn helper_requires_root_ownership_and_safe_setuid_permissions() {
+        assert!(valid_helper_metadata(0, 0, 0o104755));
+        assert!(!valid_helper_metadata(501, 0, 0o104755));
+        assert!(!valid_helper_metadata(0, 20, 0o104755));
+        assert!(!valid_helper_metadata(0, 0, 0o100755));
+        assert!(!valid_helper_metadata(0, 0, 0o104777));
     }
 }

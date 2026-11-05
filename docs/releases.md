@@ -48,12 +48,15 @@ gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/openwrap-updater.key
 
 then copy `~/.tauri/openwrap-updater.key.pub` into `tauri.conf.json`.
 
-## The privileged helper is not auto-updated
+## Updating the privileged helper
 
-The setuid helper in `/Library/PrivilegedHelperTools` needs `sudo`, so an
-update does not replace it. The app compares the installed helper with the one
-bundled in the running app (`get_app_info`) and, when they differ, shows a
-banner with the one-line `sudo install …` command to copy into Terminal.
+App updates do not replace the setuid helper in `/Library/PrivilegedHelperTools`
+automatically. The app compares the installed helper with the bundled version
+and checks its ownership and permissions. If installation or repair is needed,
+the banner offers **Install helper** or **Update helper**. Clicking it opens the
+native macOS administrator authorization dialog, installs the bundled helper,
+and verifies the result. No Terminal command or app restart is required, and
+OpenWrap never receives the administrator password.
 
 ## Local builds
 
