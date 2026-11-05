@@ -1,0 +1,46 @@
+# Continuous validation for pushes and PRs.
+#
+# Mirrors the Release workflow's verification steps on the same runner
+# (macos-15 / arm64) so a dependency or code change is proven against the
+# platform OpenWrap actually ships on before it lands on main:
+# npm tests, helper release build, core+app test suites, and a full
+# ad-hoc Tauri app build (no signing secrets needed at this stage).
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: |
+          npm test
+          cargo build -p openwrap-helper --release
+          cargo test -p openwrap-core -p openwrap-app
+
+      - name: Build OpenWrap.app (unsigned)
+        run: npx --yes @tauri-apps/cli@2 build --bundles app
