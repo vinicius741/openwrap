@@ -13,7 +13,7 @@
     "tauri:build": "cargo tauri build --bundles app",
     "tauri:build:signed": "./scripts/build-signed-app.sh",
     "cargo:test": "cargo test -p openwrap-core",
-    "test": "node --test test/config-regression.mjs",
+    "test": "node --test test/*.mjs",
     "check": "npm run build --workspace ui && cargo test -p openwrap-core"
   }
 }

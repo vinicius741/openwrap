@@ -303,6 +303,11 @@ mod tests {
 
         let openvpn_path = base_dir.join("openvpn");
         fs::write(&openvpn_path, "#!/bin/sh\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&openvpn_path, fs::Permissions::from_mode(0o755)).unwrap();
+        }
 
         let profile_id = ProfileId::new();
         let managed_dir = base_dir.join("profiles").join(profile_id.to_string());

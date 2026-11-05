@@ -78,7 +78,7 @@ impl From<&AppError> for UserFacingError {
                 title: "OpenVPN not found".into(),
                 message: "OpenWrap could not find the OpenVPN community binary.".into(),
                 suggested_fix: Some(
-                    "Install OpenVPN via Homebrew or set a custom binary path in Settings.".into(),
+                    "Click Install OpenVPN to set up OpenVPN and Homebrew automatically.".into(),
                 ),
                 details_safe: None,
             },

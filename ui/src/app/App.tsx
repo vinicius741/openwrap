@@ -4,6 +4,7 @@ import { Sidebar } from '../components/Sidebar'
 import { TopBar } from '../components/TopBar'
 import { ProfileDetail } from '../features/profiles/ProfileDetail'
 import { SettingsView } from '../features/settings/SettingsView'
+import { RuntimeSetup } from '../features/settings/runtime-setup'
 import { useConnectionEvents } from '../features/connection/useConnectionEvents'
 import { HelperOutdatedBanner, UpdateBanner } from '../features/updates/UpdateBanner'
 import { useUpdateEvents } from '../features/updates/useUpdateEvents'
@@ -44,6 +45,7 @@ export function App() {
                 <strong>{error.title}</strong>
                 <p>{error.message}</p>
                 {error.suggested_fix ? <p>{error.suggested_fix}</p> : null}
+                {error.code === 'openvpn_not_found' ? <RuntimeSetup /> : null}
               </div>
               <div className="error-banner-actions">
                 <button className="action-button action-secondary" onClick={() => setError(null)} type="button">

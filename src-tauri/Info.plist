@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>OpenWrap opens Terminal to install OpenVPN and Homebrew with your permission.</string>
     <key>NSSystemExtensionUsageDescription</key>
     <string>OpenWrap uses a packet tunnel system extension to connect VPN profiles without changing macOS DNS settings directly.</string>
 </dict>

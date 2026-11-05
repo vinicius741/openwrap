@@ -1,4 +1,5 @@
 import type { UserFacingError } from '../../../types/ipc'
+import { RuntimeSetup } from '../../settings/runtime-setup'
 
 interface ConnectionErrorBannerProps {
   error: UserFacingError | null
@@ -23,6 +24,7 @@ export function ConnectionErrorBanner({ error, logFilePath, onShowLogs, onReveal
           </p>
         ) : null}
         {error.suggested_fix ? <p>{error.suggested_fix}</p> : null}
+        {error.code === 'openvpn_not_found' ? <RuntimeSetup /> : null}
         {logFilePath ? (
           <>
             <p className="error-path-label">Saved log file</p>

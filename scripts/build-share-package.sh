@@ -26,4 +26,4 @@ fi
 
 echo
 echo "Send OpenWrap-Share.zip to the other person; they unzip it and run"
-echo "setup.sh (see README-FIRST.txt)."
+echo "Setup.command (see README-FIRST.txt)."

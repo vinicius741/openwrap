@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { profileInitialState } from './slices/profileSlice'
 import { connectionInitialState, type UiLogEntry } from './slices/connectionSlice'
-import { settingsInitialState } from './slices/settingsSlice'
+import { settingsInitialState, type SettingsSlice } from './slices/settingsSlice'
 import { importInitialState } from './slices/importSlice'
 import { updateInitialState, type UpdateSlice } from './slices/updateSlice'
 import { loadInitial } from './actions/loadInitial'
@@ -21,7 +21,7 @@ import {
   reduceAppendLogs,
 } from './reducers/connectionEvents'
 import { importProfile } from '../features/profiles/api'
-import { updateSettings } from '../features/settings/api'
+import { getRuntimeDependencies, installRuntimeDependencies, updateSettings } from '../features/settings/api'
 import { checkForUpdate, getAppInfo, installUpdate } from '../features/updates/api'
 import { normalizeCommandError } from '../lib/tauri'
 import type { ImportWarningState } from '../types/domain'
@@ -36,7 +36,7 @@ import type {
   UserFacingError,
 } from '../types/ipc'
 
-type AppStore = UpdateSlice & {
+type AppStore = UpdateSlice & SettingsSlice & {
   profiles: ProfileSummary[]
   selectedProfileId: string | null
   selectedProfile: ProfileDetail | null
@@ -76,6 +76,8 @@ type AppStore = UpdateSlice & {
   setError: (error: UserFacingError | null) => void
   clearImportWarning: () => void
   saveSettings: (verboseLogging: boolean) => Promise<void>
+  checkRuntimeDependencies: () => Promise<void>
+  installRuntimeDependencies: () => Promise<void>
   loadAppInfo: () => Promise<void>
   /** `manual` surfaces errors and "up to date"; the startup check stays silent. */
   checkForUpdates: (manual: boolean) => Promise<void>
@@ -350,6 +352,35 @@ export const createAppStore = () => {
           set({ settings, error: null })
         } catch (error) {
           set({ error: normalizeCommandError(error) })
+        }
+      },
+
+      checkRuntimeDependencies: async () => {
+        if (get().runtimeStatus === 'installing' || get().runtimeStatus === 'checking') return
+        set({ runtimeStatus: 'checking', runtimeError: null })
+        try {
+          const runtimeDependencies = await getRuntimeDependencies()
+          set({ runtimeDependencies, runtimeStatus: runtimeDependencies.openvpn_path ? 'ready' : 'missing' })
+        } catch (error) {
+          set({ runtimeStatus: 'error', runtimeError: normalizeCommandError(error) })
+        }
+      },
+
+      installRuntimeDependencies: async () => {
+        if (get().runtimeStatus === 'installing' || get().runtimeStatus === 'checking') return
+        set({ runtimeStatus: 'installing', runtimeError: null })
+        try {
+          const runtimeDependencies = await installRuntimeDependencies()
+          set((state) => ({
+            runtimeDependencies,
+            runtimeStatus: 'ready',
+            error: state.error?.code === 'openvpn_not_found' ? null : state.error,
+            connection: state.connection?.last_error?.code === 'openvpn_not_found'
+              ? { ...state.connection, last_error: null }
+              : state.connection,
+          }))
+        } catch (error) {
+          set({ runtimeStatus: 'error', runtimeError: normalizeCommandError(error) })
         }
       },
 

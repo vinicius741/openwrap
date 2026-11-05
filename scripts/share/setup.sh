@@ -6,8 +6,8 @@
 # or pass an explicit app path if you already moved it:
 #   ./setup.sh /Applications/OpenWrap.app
 #
-# It clears the macOS quarantine flag, checks for OpenVPN (offering a
-# Homebrew install), and installs the privileged setuid helper bundled
+# It clears the macOS quarantine flag, installs Homebrew and OpenVPN if
+# needed, and installs the privileged setuid helper bundled
 # inside OpenWrap.app.
 set -eu
 
@@ -49,38 +49,8 @@ echo "Clearing macOS quarantine flags..."
 echo "Done."
 echo
 
-# Candidate paths must match discovery in
-# crates/openwrap-core/src/openvpn/runtime.rs.
-OPENVPN=""
-for candidate in /opt/homebrew/sbin/openvpn /usr/local/sbin/openvpn /usr/bin/openvpn; do
-  if [ -x "$candidate" ]; then
-    OPENVPN="$candidate"
-    break
-  fi
-done
-
-if [ -n "$OPENVPN" ]; then
-  echo "OpenVPN found: $OPENVPN"
-else
-  echo "OpenVPN not found (checked /opt/homebrew/sbin, /usr/local/sbin, /usr/bin)."
-  if command -v brew >/dev/null 2>&1; then
-    printf "Install it now with Homebrew? [y/N] "
-    read -r answer
-    case "$answer" in
-      y|Y) brew install openvpn ;;
-    esac
-    if [ -x /opt/homebrew/sbin/openvpn ]; then
-      OPENVPN=/opt/homebrew/sbin/openvpn
-    fi
-  fi
-  if [ -z "$OPENVPN" ]; then
-    echo
-    echo "WARNING: OpenVPN is still not installed."
-    echo "OpenWrap will not be able to connect until you run:"
-    echo "  brew install openvpn"
-    echo "(Get Homebrew from https://brew.sh first if needed.)"
-  fi
-fi
+# Stop if dependency installation fails so setup never reports false success.
+/bin/bash "$SCRIPT_DIR/install-openvpn.sh"
 echo
 
 # Same install layout as scripts/install-helper.sh in the repository.

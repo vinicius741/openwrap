@@ -22,6 +22,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(commands::updates::PendingUpdate::default())
+        .manage(commands::runtime::RuntimeInstaller::default())
         .setup(|app| {
             let result = catch_unwind(AssertUnwindSafe(|| {
                 let app_state = bootstrap::bootstrap_app(base_dir)?;

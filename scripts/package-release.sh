@@ -5,7 +5,7 @@
 # Usage: scripts/package-release.sh <OpenWrap.app> <out-dir>
 #
 # Produces in <out-dir>:
-#   OpenWrap-Share.zip        first-time install: app + setup.sh + README-FIRST.txt
+#   OpenWrap-Share.zip        first-time install: app + Setup.command + setup scripts + README-FIRST.txt
 #   OpenWrap.app.tar.gz       in-app update archive          (only with a signing key)
 #   OpenWrap.app.tar.gz.sig   minisign signature of it       (only with a signing key)
 #   latest.json               updater manifest               (only with a signing key)
@@ -79,6 +79,9 @@ mkdir -p "$SHARE_DIR"
 /usr/bin/ditto "$APP" "$SHARE_DIR/OpenWrap.app"
 cp "$ROOT_DIR/scripts/share/setup.sh" "$SHARE_DIR/setup.sh"
 chmod +x "$SHARE_DIR/setup.sh"
+cp "$ROOT_DIR/scripts/share/install-openvpn.sh" "$SHARE_DIR/install-openvpn.sh"
+cp "$ROOT_DIR/scripts/share/Setup.command" "$SHARE_DIR/Setup.command"
+chmod +x "$SHARE_DIR/Setup.command"
 cp "$ROOT_DIR/scripts/share/README-FIRST.txt" "$SHARE_DIR/README-FIRST.txt"
 rm -f "$OUT_DIR/OpenWrap-Share.zip"
 /usr/bin/ditto -c -k --keepParent "$SHARE_DIR" "$OUT_DIR/OpenWrap-Share.zip"

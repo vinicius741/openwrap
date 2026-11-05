@@ -23,7 +23,7 @@ OpenWrap is a lightweight macOS desktop client for OpenVPN profiles. Built with 
 - macOS (primary platform)
 - [Rust](https://rustup.rs/) (edition 2021)
 - [Node.js](https://nodejs.org/) 18+ and npm
-- [OpenVPN](https://openvpn.net/community-downloads/) community client (`brew install openvpn`) for the default helper path
+- [OpenVPN](https://openvpn.net/community-downloads/) community client for the default helper path. Use **Install OpenVPN** in Settings to install it and Homebrew if needed, or run `brew install openvpn` manually.
 
 ## Development Setup
 
@@ -62,6 +62,10 @@ open target/release/bundle/macos/OpenWrap.app
 ```
 
 OpenWrap detects Homebrew OpenVPN at `/opt/homebrew/sbin/openvpn` or `/usr/local/sbin/openvpn`.
+If OpenVPN is missing, click **Install OpenVPN** in Settings or the connection
+error. Setup opens Terminal for your administrator password and installs Homebrew
+first when needed. For a shared build, double-click `Setup.command` to install
+both dependencies and the bundled helper together.
 
 ### Optional: Packet Tunnel (paid Apple program)
 

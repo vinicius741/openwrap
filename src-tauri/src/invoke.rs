@@ -18,6 +18,8 @@ macro_rules! invoke_handlers {
             $crate::commands::connection::get_recent_logs,
             $crate::commands::connection::reveal_connection_log_in_finder,
             $crate::commands::settings::get_settings,
+            $crate::commands::runtime::get_runtime_dependencies,
+            $crate::commands::runtime::install_runtime_dependencies,
             $crate::commands::settings::update_settings,
             $crate::commands::settings::reveal_profile_in_finder,
             $crate::commands::logs::reveal_logs_folder,
