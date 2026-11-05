@@ -125,6 +125,10 @@ export interface Settings {
   verbose_logging: boolean
 }
 
+export interface RuntimeDependencies {
+  openvpn_path: string | null
+}
+
 export type SessionOutcome = 'success' | 'failed' | 'cancelled' | 'in_progress'
 
 export interface SessionSummary {

@@ -4,6 +4,13 @@
   gap: 16px;
 }
 
+.runtime-setup {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
 .settings-detail {
   margin-top: 24px;
   color: var(--text-secondary);

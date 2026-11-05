@@ -87,7 +87,7 @@ jobs:
             --title "OpenWrap ${VERSION}" \
             --notes "${RELEASE_NOTES}
 
-          **First install:** download \`OpenWrap-Share.zip\`, unzip it and run \`setup.sh\` (see README-FIRST.txt).
+          **First install:** download \`OpenWrap-Share.zip\`, unzip it and double-click \`Setup.command\` (see README-FIRST.txt).
           **Already installed:** OpenWrap offers this update automatically when it starts." \
             dist-release/OpenWrap-Share.zip \
             dist-release/OpenWrap.app.tar.gz \

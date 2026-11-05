@@ -26,7 +26,24 @@ Optional custom helper path (must still be root-owned and setuid):
 export OPENWRAP_HELPER_PATH=/path/to/openwrap-helper
 ```
 
-## Manual installation
+## Install OpenVPN
+
+OpenWrap can install OpenVPN and Homebrew from **Settings > Runtime > Install
+OpenVPN**, or directly from the missing-OpenVPN connection error. The installer
+opens Terminal for administrator password prompts and reports success only after
+OpenVPN is detected. It reuses existing installations and downloads Homebrew's
+official installer over HTTPS when Homebrew is missing. Homebrew may also install
+Apple's Command Line Tools. Passwords stay in Terminal.
+
+For shared builds, double-click `Setup.command` in `OpenWrap-Share`. This installs
+the dependencies and bundled privileged helper together. Keep Terminal open until
+setup finishes. A failed or cancelled dependency installation stops setup; rerun
+`Setup.command` to retry.
+
+The in-app dependency installer does not install or replace the privileged helper.
+Use the shared setup or the manual helper installation below for that step.
+
+## Manual helper installation
 
 Build the app and helper without elevated privileges, then run the installer yourself from the repository root:
 

@@ -10,20 +10,28 @@ Requirements
 ------------
 - Apple Silicon Mac (M1/M2/M3/M4). This build will NOT run on Intel Macs.
 - An administrator account.
-- OpenVPN — the setup script checks for it and can install it via Homebrew.
+- An internet connection to install OpenVPN and Homebrew if needed.
 
 Setup (one step)
 ----------------
-Double-click "setup.sh" (it opens in Terminal), or open Terminal and run:
+Double-click "Setup.command" to open the installer in Terminal, or run:
 
     cd ~/Downloads/OpenWrap-Share     # wherever you unzipped it
     ./setup.sh
 
 The script will:
   1. Clear the macOS quarantine flag so the app opens without warnings.
-  2. Check for OpenVPN and offer to install it with Homebrew if missing.
+  2. Install Homebrew if needed, then install OpenVPN. Existing installations
+     are reused. Homebrew may also install Apple's Command Line Tools.
   3. Install the privileged helper that OpenWrap uses to start OpenVPN
      (in /Library/PrivilegedHelperTools). It will ask for your password.
+
+Keep Terminal open until setup completes. Enter your Mac administrator
+password when asked. Installation may take several minutes. If it fails,
+read the error in Terminal and run Setup.command again.
+
+You can also install OpenVPN and Homebrew from OpenWrap in Settings > Runtime,
+or with the Install OpenVPN button when a connection reports it is missing.
 
 After setup
 -----------

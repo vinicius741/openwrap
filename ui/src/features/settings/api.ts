@@ -1,5 +1,13 @@
 import { invokeCommand } from '../../lib/tauri'
-import type { Settings } from '../../types/ipc'
+import type { RuntimeDependencies, Settings } from '../../types/ipc'
+
+export function getRuntimeDependencies() {
+  return invokeCommand<RuntimeDependencies>('get_runtime_dependencies')
+}
+
+export function installRuntimeDependencies() {
+  return invokeCommand<RuntimeDependencies>('install_runtime_dependencies')
+}
 
 export async function getSettings() {
   return invokeCommand<Settings>('get_settings')
