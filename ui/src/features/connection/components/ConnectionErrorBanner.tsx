@@ -1,5 +1,5 @@
 import type { UserFacingError } from '../../../types/ipc'
-import { RuntimeSetup } from '../../settings/RuntimeSetup'
+import { RuntimeSetup } from '../../settings/runtime-setup'
 
 interface ConnectionErrorBannerProps {
   error: UserFacingError | null

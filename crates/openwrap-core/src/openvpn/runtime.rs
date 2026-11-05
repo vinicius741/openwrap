@@ -27,14 +27,12 @@ pub fn detect_openvpn_binaries(override_path: Option<PathBuf>) -> OpenVpnDetecti
     .into_iter()
     .flatten()
     {
-        if candidate.exists() && !discovered_paths.contains(candidate) {
+        if is_executable_file(candidate) && !discovered_paths.contains(candidate) {
             discovered_paths.push(candidate.clone());
         }
     }
 
-    let selected_path = override_path
-        .filter(|path| path.exists())
-        .or_else(|| discovered_paths.first().cloned());
+    let selected_path = discovered_paths.first().cloned();
 
     OpenVpnDetection {
         discovered_paths,
@@ -42,9 +40,54 @@ pub fn detect_openvpn_binaries(override_path: Option<PathBuf>) -> OpenVpnDetecti
     }
 }
 
+fn is_executable_file(path: &std::path::Path) -> bool {
+    let Ok(metadata) = path.metadata() else {
+        return false;
+    };
+    if !metadata.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        metadata.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        true
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn detection_rejects_directory_override() {
+        let dir = tempfile::tempdir().unwrap();
+        let detection = detect_openvpn_binaries(Some(dir.path().to_path_buf()));
+        assert!(!detection
+            .discovered_paths
+            .contains(&dir.path().to_path_buf()));
+        assert_ne!(detection.selected_path.as_deref(), Some(dir.path()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn detection_requires_executable_override() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let path = file.path().to_path_buf();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let detection = detect_openvpn_binaries(Some(path.clone()));
+        assert!(!detection.discovered_paths.contains(&path));
+        assert_ne!(detection.selected_path.as_ref(), Some(&path));
+
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let detection = detect_openvpn_binaries(Some(path.clone()));
+        assert_eq!(detection.selected_path, Some(path));
+    }
 
     #[test]
     fn settings_default() {

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 
 import { useAppStore } from '../../store/appStore'
 import { THEMES, getStoredTheme, applyTheme, setStoredTheme, type AppTheme } from '../../lib/theme'
-import { RuntimeSetup } from './RuntimeSetup'
+import { RuntimeSetup } from './runtime-setup'
 
 export function SettingsView() {
   const settings = useAppStore((state) => state.settings)
