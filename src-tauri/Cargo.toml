@@ -23,7 +23,6 @@ sha2.workspace = true
 tauri.workspace = true
 tauri-plugin-dialog.workspace = true
 tauri-plugin-fs.workspace = true
-tauri-plugin-opener.workspace = true
 tauri-plugin-updater.workspace = true
 tempfile = "3.27"
 tokio.workspace = true

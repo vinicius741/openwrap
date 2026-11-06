@@ -1,5 +1,6 @@
 use std::fs;
-use std::path::PathBuf;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 
 use chrono::Utc;
 
@@ -110,10 +111,7 @@ impl SessionLogManager {
             verbose_mode: self.verbose,
         };
 
-        let metadata_path = log_dir.join("metadata.json");
-        let metadata_json = serde_json::to_string_pretty(&metadata)
-            .map_err(|e| AppError::Serialization(e.to_string()))?;
-        if let Err(e) = fs::write(&metadata_path, &metadata_json) {
+        if let Err(e) = write_metadata(&log_dir, &metadata) {
             eprintln!("[logging] Failed to write metadata: {}", e);
         }
 
@@ -138,10 +136,8 @@ impl SessionLogManager {
                     metadata.ended_at = Some(Utc::now());
                     metadata.outcome = outcome;
 
-                    if let Ok(json) = serde_json::to_string_pretty(&metadata) {
-                        if let Err(e) = fs::write(&metadata_path, &json) {
-                            eprintln!("[logging] Failed to update metadata: {}", e);
-                        }
+                    if let Err(e) = write_metadata(&session.log_dir, &metadata) {
+                        eprintln!("[logging] Failed to update metadata: {}", e);
                     }
                 }
             }
@@ -192,4 +188,25 @@ impl SessionLogManager {
     pub fn get_base_logs_dir(&self) -> &PathBuf {
         &self.base_logs_dir
     }
+}
+
+// Publish a complete JSON document in one rename. Readers keep seeing the old
+// metadata if writing the replacement fails or the process exits mid-write.
+fn write_metadata(log_dir: &Path, metadata: &SessionMetadata) -> Result<(), AppError> {
+    let json = serde_json::to_vec_pretty(metadata)
+        .map_err(|error| AppError::Serialization(error.to_string()))?;
+    let temp_path = log_dir.join(format!(".metadata-{}.tmp", uuid::Uuid::new_v4()));
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temp_path)?;
+    let result = (|| {
+        file.write_all(&json)?;
+        drop(file);
+        fs::rename(&temp_path, log_dir.join("metadata.json"))
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temp_path);
+    }
+    result.map_err(AppError::from)
 }

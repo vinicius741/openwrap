@@ -67,7 +67,30 @@ impl SharedSessionLogManager {
     }
 
     pub fn cleanup_old_sessions(&self, max_age_days: u32) -> Result<u64, AppError> {
-        let base_logs_dir = self.inner.lock().get_base_logs_dir().clone();
-        crate::logging::catalog::cleanup_old_sessions(&base_logs_dir, max_age_days)
+        self.cleanup_sessions(max_age_days, None)
+    }
+
+    pub fn enforce_retention(&self) -> Result<u64, AppError> {
+        self.cleanup_sessions(
+            super::DEFAULT_MAX_AGE_DAYS,
+            Some(super::DEFAULT_MAX_COMPLETED_BYTES),
+        )
+    }
+
+    fn cleanup_sessions(&self, max_age_days: u32, max_bytes: Option<u64>) -> Result<u64, AppError> {
+        let (base_dir, active_dir) = {
+            let manager = self.inner.lock();
+            (
+                manager.get_base_logs_dir().clone(),
+                manager.current_session_dir().cloned(),
+            )
+        };
+        // Directory traversal and deletion do not hold up connection log writes.
+        super::retention::cleanup_sessions(
+            &base_dir,
+            max_age_days,
+            max_bytes,
+            active_dir.as_deref(),
+        )
     }
 }

@@ -122,11 +122,20 @@ pub async fn install_update(
         .ok_or_else(|| update_error("No update available", "Check for updates first."))?;
 
     let mut downloaded: u64 = 0;
+    let mut last_progress = None;
     let progress_handle = app.clone();
     update
         .download_and_install(
             move |chunk_length, total| {
                 downloaded += chunk_length as u64;
+                let now = std::time::Instant::now();
+                if last_progress.is_some_and(|last: std::time::Instant| {
+                    now.duration_since(last) < std::time::Duration::from_millis(100)
+                }) && total != Some(downloaded)
+                {
+                    return;
+                }
+                last_progress = Some(now);
                 let _ = progress_handle.emit(
                     UPDATE_DOWNLOAD_PROGRESS,
                     UpdateProgress { downloaded, total },

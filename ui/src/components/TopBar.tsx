@@ -6,7 +6,7 @@ export function TopBar({
   return (
     <header className="topbar">
       <div className="topbar-brand">
-        <img className="topbar-logo" src="/logo.png" alt="" aria-hidden="true" />
+        <img className="topbar-logo" src="/logo-small.png" alt="" aria-hidden="true" />
         <span>OpenWrap</span>
       </div>
       <div className="topbar-actions">

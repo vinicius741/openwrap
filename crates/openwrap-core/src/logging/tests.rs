@@ -238,3 +238,33 @@ fn cleanup_old_sessions_handles_malformed_directory_names() {
 
     assert!(malformed_dir.exists());
 }
+
+#[cfg(unix)]
+#[test]
+fn ending_session_publishes_metadata_without_truncating_existing_readers() {
+    use std::io::Read;
+
+    let temp = TempDir::new().unwrap();
+    let mut manager = SessionLogManager::new(temp.path().to_path_buf(), false);
+    let path = manager
+        .start_session(&SessionId::new(), &ProfileId::new(), "Atomic metadata")
+        .unwrap();
+    let mut existing_reader = fs::File::open(path.join("metadata.json")).unwrap();
+
+    manager.end_session(SessionOutcome::Success);
+
+    let mut original = String::new();
+    existing_reader.read_to_string(&mut original).unwrap();
+    let original: SessionMetadata = serde_json::from_str(&original).unwrap();
+    assert_eq!(original.outcome, SessionOutcome::InProgress);
+    assert!(original.ended_at.is_none());
+    let published: SessionMetadata =
+        serde_json::from_slice(&fs::read(path.join("metadata.json")).unwrap()).unwrap();
+    assert_eq!(published.outcome, SessionOutcome::Success);
+    assert!(published.ended_at.is_some());
+    assert!(!fs::read_dir(&path).unwrap().any(|entry| entry
+        .unwrap()
+        .file_name()
+        .to_string_lossy()
+        .starts_with(".metadata-")));
+}

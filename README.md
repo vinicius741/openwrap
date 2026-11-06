@@ -14,7 +14,7 @@ OpenWrap is a lightweight macOS desktop client for OpenVPN profiles. Built with 
 - **macOS Integration** — Native system tray with connection state and profile selection
 - **Secure Storage** — Native macOS Keychain storage for remembered usernames, plus app-local generated-password secrets for opt-in PIN+TOTP profiles
 - **DNS Management** — Apply full or split DNS with crash-recovery reconciliation (helper path)
-- **Session Logging** — Persistent logs for debugging connection issues, organized by date
+- **Session Logging** — Persistent logs for debugging connection issues, organized by date with automatic 30-day retention and a 100 MiB completed-session budget
 - **Privileged Helper** — Launch the OpenVPN community client without paid Apple entitlements
 - **Optional Packet Tunnel** — System extension path when you have paid Network Extension signing
 

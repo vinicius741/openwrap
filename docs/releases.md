@@ -63,3 +63,7 @@ OpenWrap never receives the administrator password.
 `scripts/build-share-package.sh` builds and packages locally into
 `~/Desktop/OpenWrap-Release/` (update files only when the key exists). Useful
 for testing; normal releases go through `scripts/release.sh`.
+
+Release builds strip symbol tables through the workspace Cargo profile before
+code signing and packaging. Panic unwinding remains enabled for startup and
+shutdown recovery. Debug builds retain their normal symbols.

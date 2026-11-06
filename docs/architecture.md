@@ -18,6 +18,17 @@ OpenWrap stores application data under `~/Library/Application Support/OpenWrap/`
 - **`runtime/`**: Transient directory for active VPN session files (e.g., rewritten config files, credentials temporary buffers).
 - **`logs/`**: Session logs directory, organized by date, saving debug logs for OpenVPN processes, core transitions, and DNS observations.
 
+Session log retention runs in the background at startup and every six hours.
+Sessions older than 30 days are removed. If completed sessions still exceed
+100 MiB, the oldest completed sessions are removed first. The active session
+and `last-failed-openvpn.log` are preserved. Active and unfinished sessions
+can temporarily exceed the completed-session budget. Cleanup does not hold
+the connection log writer lock while scanning or deleting files. Unreadable
+entries are skipped so they do not block cleanup elsewhere; their bytes are
+excluded from the budget. The sessions root may be relocated with a symlink,
+but links inside the session tree are not followed. Session metadata is
+replaced atomically to avoid partially written JSON during normal updates.
+
 ## macOS VPN backends
 
 ### Privileged helper (default)

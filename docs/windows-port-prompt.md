@@ -40,7 +40,7 @@ Você vai adicionar suporte a **Windows** ao OpenWrap, um cliente desktop de per
 | Detecção do OpenVPN | `openvpn/runtime.rs` só procura caminhos do Homebrew/Linux. | Adicionar `C:\Program Files\OpenVPN\bin\openvpn.exe` (e ler o caminho de instalação do registro `HKLM\SOFTWARE\OpenVPN`, se for simples). |
 | Pasta de dados | `src-tauri/src/lib.rs` usa `dirs::data_local_dir()/OpenWrap`, que vira `%LOCALAPPDATA%\OpenWrap`. Só o helper fixa `Library/Application Support`. | Provavelmente nada. Testar com nome de usuário **com espaço** (o `quote_openvpn_arg` escapa `\` e espaço). |
 | Permissões | `0o600`/`0o700` atrás de `cfg(unix)` em `runtime.rs` e `secrets/local_db.rs`, com fallback no-op. | Aceitável para o MVP (`%LOCALAPPDATA%` já tem ACL por usuário). Opcional: endurecer a ACL do arquivo de auth. |
-| Revelar logs | `src-tauri/src/commands/logs.rs` chama `/usr/bin/open`. | Usar o `tauri-plugin-opener` (já é dependência) ou `explorer /select,`. |
+| Revelar logs | `src-tauri/src/commands/logs.rs` chama `/usr/bin/open`. | Adicionar o `tauri-plugin-opener` ou usar `explorer /select,`. |
 | Updates | `src-tauri/src/commands/updates.rs` compara e instala o helper com `sudo install`. | No Windows, reportar o helper como não aplicável e esconder o comando de reinstalação na UI. |
 | Policy | Allowlist em `config/policy.rs`. | Avaliar liberar `block-outside-dns`, `windows-driver`, `dns`. `management` continua bloqueado no perfil importado: o app adiciona a própria diretiva na config gerada. |
 | UI | Textos citam "Finder", "Keychain", "macOS may ask for your password" (`ui/src/features/...`). | Textos por plataforma. Expor a plataforma via comando IPC ou `@tauri-apps/plugin-os`. |
