@@ -23,6 +23,8 @@ Code lives in `src-tauri/src/app_state/backend_factory.rs` (module docs). Human 
 
 When reviewing or implementing changes: prefer keeping the helper path solid. Do **not** make Packet Tunnel the default, require paid signing for normal connect, or treat “helper instead of NE” as incomplete work.
 
+**Windows (experimental):** no helper. The app runs elevated (`requireAdministrator` manifest in `src-tauri/windows/`) and uses `DirectOpenVpnBackend` with `openvpn.exe`. All Windows code sits behind `cfg(windows)`; macOS behavior must not change. See `docs/windows-setup.md`.
+
 ## Development Commands
 
 ```bash

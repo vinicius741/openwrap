@@ -1,4 +1,4 @@
-# Continuous validation for pushes and PRs.
+# Continuous validation for pushes and PRs (macOS job below, plus a Windows job).
 #
 # Mirrors the Release workflow's verification steps on the same runner
 # (macos-15 / arm64) so a dependency or code change is proven against the
@@ -44,3 +44,37 @@ jobs:
 
       - name: Build OpenWrap.app (unsigned)
         run: npx --yes @tauri-apps/cli@2 build --bundles app
+
+  # Windows: OpenWrap runs elevated and launches openvpn.exe directly (no setuid
+  # helper). Proves the Windows build compiles and tests pass, and publishes the
+  # unsigned NSIS installer as a workflow artifact for manual testing.
+  test-windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: |
+          npm test
+          cargo test -p openwrap-core -p openwrap-app
+
+      - name: Build OpenWrap installer (unsigned)
+        run: npx --yes @tauri-apps/cli@2 build --bundles nsis
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openwrap-windows-installer
+          path: target/release/bundle/nsis/*.exe
+          if-no-files-found: error

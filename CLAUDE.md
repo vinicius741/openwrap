@@ -16,6 +16,8 @@ OpenWrap is a **personal hobby project**. The maintainer **will not pay** the Ap
 
 Full detail: `AGENTS.md` (“Hobby constraint”), `src-tauri/src/app_state/backend_factory.rs`.
 
+**Windows (experimental):** no helper. The app runs elevated (`requireAdministrator` manifest in `src-tauri/windows/`) and uses `DirectOpenVpnBackend` with `openvpn.exe`. All Windows code sits behind `cfg(windows)`; macOS behavior must not change. See `docs/windows-setup.md`.
+
 ## Development Commands
 
 ```bash
