@@ -43,6 +43,10 @@ pub fn classify_directive(name: &str, args: &[String]) -> DirectiveClassificatio
         "redirect-gateway" | "route-nopull" | "route" | "pull-filter" => {
             DirectiveClassification::Warned
         }
+        // Windows-only OpenVPN options. Other platforms' OpenVPN builds reject
+        // them, so they stay blocked there.
+        "windows-driver" if cfg!(windows) => DirectiveClassification::Allowed,
+        "block-outside-dns" if cfg!(windows) => DirectiveClassification::Warned,
         "dhcp-option" => match args.first().map(|value| value.to_ascii_uppercase()) {
             Some(option) if option == "DNS" || option == "DOMAIN" || option == "DOMAIN-SEARCH" => {
                 DirectiveClassification::Warned

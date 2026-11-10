@@ -36,7 +36,10 @@ impl DnsObserver for PassiveDnsObserver {
                 .push(describe_effective_mode(&policy).into());
         }
 
-        if policy == DnsPolicy::SplitDnsPreferred
+        // On Windows OpenVPN applies pushed DNS servers to the tunnel adapter
+        // even without domains, so this macOS-specific warning does not apply.
+        if cfg!(not(windows))
+            && policy == DnsPolicy::SplitDnsPreferred
             && config.has_servers()
             && !config.has_scoped_domains()
         {
@@ -86,7 +89,18 @@ fn default_effective_mode(policy: &DnsPolicy) -> DnsEffectiveMode {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+/// On Windows OpenVPN applies DNS itself; see `dns::windows` for how each
+/// policy is mapped onto OpenVPN directives.
+#[cfg(windows)]
+fn default_effective_mode(policy: &DnsPolicy) -> DnsEffectiveMode {
+    match policy {
+        DnsPolicy::SplitDnsPreferred => DnsEffectiveMode::ScopedResolvers,
+        DnsPolicy::FullOverride => DnsEffectiveMode::GlobalOverride,
+        DnsPolicy::ObserveOnly => DnsEffectiveMode::ObserveOnly,
+    }
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
 fn default_effective_mode(_policy: &DnsPolicy) -> DnsEffectiveMode {
     DnsEffectiveMode::ObserveOnly
 }
@@ -159,6 +173,22 @@ fn apply_runtime_warning(observation: &mut DnsObservation, warning: &str) -> boo
     }
 }
 
+#[cfg(windows)]
+fn describe_effective_mode(policy: &DnsPolicy) -> &'static str {
+    match policy {
+        DnsPolicy::ObserveOnly => {
+            "OpenWrap tells OpenVPN to ignore pushed DNS settings for this profile; any DNS shown here is inferred from the profile or OpenVPN runtime logs."
+        }
+        DnsPolicy::SplitDnsPreferred => {
+            "On Windows, OpenVPN applies the VPN DNS servers to the VPN adapter. Windows decides per query which adapter's DNS to use, and VPN domains are routed to the VPN when the server provides them."
+        }
+        DnsPolicy::FullOverride => {
+            "OpenVPN applies the VPN DNS servers and blocks DNS on other network adapters (block-outside-dns) while connected."
+        }
+    }
+}
+
+#[cfg(not(windows))]
 fn describe_effective_mode(policy: &DnsPolicy) -> &'static str {
     match policy {
         DnsPolicy::ObserveOnly => {
@@ -177,7 +207,9 @@ fn describe_effective_mode(policy: &DnsPolicy) -> &'static str {
 mod tests {
     use crate::dns::{DnsEffectiveMode, DnsPolicy, DnsRestoreStatus};
 
-    use super::{DnsObserver, PassiveDnsObserver, MISSING_DOMAIN_WARNING};
+    #[cfg(not(windows))]
+    use super::MISSING_DOMAIN_WARNING;
+    use super::{DnsObserver, PassiveDnsObserver};
 
     #[test]
     fn normalizes_profile_dns_intent() {
@@ -236,6 +268,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn warns_when_split_dns_has_no_domains() {
         let observer = PassiveDnsObserver;

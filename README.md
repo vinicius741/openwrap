@@ -20,7 +20,7 @@ OpenWrap is a lightweight macOS desktop client for OpenVPN profiles. Built with 
 
 ## Prerequisites
 
-- macOS (primary platform)
+- macOS (primary platform). Windows support is experimental: see [Windows Setup](docs/windows-setup.md).
 - [Rust](https://rustup.rs/) (edition 2021)
 - [Node.js](https://nodejs.org/) 18+ and npm
 - [OpenVPN](https://openvpn.net/community-downloads/) community client for the default helper path. Use **Install OpenVPN** in Settings to install it and Homebrew if needed, or run `brew install openvpn` manually.
