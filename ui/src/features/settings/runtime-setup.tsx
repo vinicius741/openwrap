@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 
+import { isWindows } from '../../lib/platform'
 import { useAppStore } from '../../store/appStore'
 
 export function RuntimeSetup() {
@@ -23,9 +24,13 @@ export function RuntimeSetup() {
           </>
         ) : (
           <p className="settings-hint">
-            {status === 'installing'
-              ? 'Complete setup in Terminal. Enter your Mac password when asked and keep the window open until installation finishes.'
-              : 'Install OpenVPN and, if needed, Homebrew. Setup opens Terminal and asks for your Mac administrator password. It may take several minutes.'}
+            {isWindows
+              ? status === 'installing'
+                ? 'Complete setup in the installer window and keep it open until installation finishes.'
+                : 'Install OpenVPN Community with winget. Setup opens a console window and may take several minutes.'
+              : status === 'installing'
+                ? 'Complete setup in Terminal. Enter your Mac password when asked and keep the window open until installation finishes.'
+                : 'Install OpenVPN and, if needed, Homebrew. Setup opens Terminal and asks for your Mac administrator password. It may take several minutes.'}
           </p>
         )}
       </div>

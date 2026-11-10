@@ -1,3 +1,7 @@
+//! The setuid helper is a macOS/Unix-only component. On Windows the app runs
+//! OpenVPN directly (elevated), so the crate compiles to an empty library there.
+#![cfg(unix)]
+
 pub mod connect;
 pub mod reconcile;
 pub mod request;

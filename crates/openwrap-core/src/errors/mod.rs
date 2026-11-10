@@ -78,7 +78,12 @@ impl From<&AppError> for UserFacingError {
                 title: "OpenVPN not found".into(),
                 message: "OpenWrap could not find the OpenVPN community binary.".into(),
                 suggested_fix: Some(
-                    "Click Install OpenVPN to set up OpenVPN and Homebrew automatically.".into(),
+                    if cfg!(windows) {
+                        "Click Install OpenVPN, or install OpenVPN Community from openvpn.net and restart OpenWrap."
+                    } else {
+                        "Click Install OpenVPN to set up OpenVPN and Homebrew automatically."
+                    }
+                    .into(),
                 ),
                 details_safe: None,
             },
@@ -105,7 +110,14 @@ impl From<&AppError> for UserFacingError {
                 code: "keychain_failed".into(),
                 title: "Keychain access failed".into(),
                 message: message.clone(),
-                suggested_fix: Some("Review macOS Keychain permissions for OpenWrap.".into()),
+                suggested_fix: Some(
+                    if cfg!(windows) {
+                        "Review the OpenWrap entries in Windows Credential Manager."
+                    } else {
+                        "Review macOS Keychain permissions for OpenWrap."
+                    }
+                    .into(),
+                ),
                 details_safe: None,
             },
             AppError::Settings(message) => Self {

@@ -1,5 +1,4 @@
 use std::path::PathBuf;
-use std::process::Command;
 
 use serde::Deserialize;
 
@@ -53,10 +52,5 @@ pub fn reveal_profile_in_finder(
             openwrap_core::AppError::ConnectionState(error.to_string())
         })?;
     let profile = state.profile_repository().get_profile(&profile_id)?;
-    Command::new("/usr/bin/open")
-        .arg("-R")
-        .arg(profile.profile.managed_ovpn_path)
-        .status()
-        .map_err(|error| CommandError::from(openwrap_core::AppError::Io(error)))?;
-    Ok(())
+    super::reveal::reveal_in_file_manager(&profile.profile.managed_ovpn_path)
 }

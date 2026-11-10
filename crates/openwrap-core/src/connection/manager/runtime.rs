@@ -99,6 +99,11 @@ pub fn write_launch_config(
         Vec::new()
     };
 
+    #[cfg(windows)]
+    if backend_mode == VpnBackendMode::ExternalProcess {
+        crate::dns::windows::append_launch_config(&mut launch_config, &detail.profile.dns_policy);
+    }
+
     #[cfg(not(target_os = "macos"))]
     let extra_cleanup_paths = Vec::new();
 

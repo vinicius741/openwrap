@@ -8,6 +8,8 @@ pub mod openvpn;
 pub mod profiles;
 pub mod secrets;
 pub mod storage;
+#[cfg(windows)]
+pub mod windows;
 
 pub use app_state::AppPaths;
 pub use connection::{ConnectionManager, CoreEvent};

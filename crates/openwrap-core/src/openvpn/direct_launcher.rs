@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::io::ErrorKind;
-use std::process::{Command as ProcessCommand, Stdio};
+#[cfg(not(windows))]
+use std::process::Command as ProcessCommand;
+use std::process::Stdio;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
@@ -14,10 +16,29 @@ use crate::openvpn::backend::{BackendEvent, ConnectRequest, SpawnedSession};
 use crate::openvpn::config_working_dir;
 use crate::VpnBackend;
 
+/// How long OpenVPN gets to tear down routes and DNS after the exit event is
+/// signalled before it is forcibly terminated.
+#[cfg(windows)]
+const WINDOWS_GRACEFUL_EXIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+// On Windows, disconnect goes through `windows`; `child` is only kept alive.
+#[cfg_attr(windows, allow(dead_code))]
 #[derive(Debug)]
 struct ChildHandle {
     pid: Option<u32>,
     child: Arc<AsyncMutex<Child>>,
+    #[cfg(windows)]
+    windows: WindowsControl,
+}
+
+/// Windows has no SIGTERM: OpenVPN is started with `--service <event> 0` and
+/// stops cleanly once that event is signalled (the same mechanism openvpn-gui
+/// uses when it launches OpenVPN directly).
+#[cfg(windows)]
+#[derive(Debug)]
+struct WindowsControl {
+    exit_event: crate::windows::ExitEvent,
+    process: Option<crate::windows::ProcessHandle>,
 }
 
 #[derive(Debug, Default)]
@@ -33,6 +54,13 @@ impl DirectOpenVpnBackend {
 
 impl VpnBackend for DirectOpenVpnBackend {
     fn connect(&self, request: ConnectRequest) -> Result<SpawnedSession, AppError> {
+        #[cfg(windows)]
+        if !crate::windows::is_elevated() {
+            return Err(AppError::OpenVpnLaunch(
+                "OpenWrap must run as administrator on Windows to start OpenVPN. Close OpenWrap, then right-click it and choose \"Run as administrator\".".into(),
+            ));
+        }
+
         let working_dir = config_working_dir(&request.config_path)?;
         let mut command = Command::new(&request.openvpn_binary);
         command.arg("--config").arg(&request.config_path);
@@ -44,10 +72,27 @@ impl VpnBackend for DirectOpenVpnBackend {
             command.arg("--auth-user-pass").arg(auth_file);
         }
 
+        #[cfg(windows)]
+        let exit_event =
+            crate::windows::ExitEvent::create(format!("openwrap-exit-{}", request.session_id.0))
+                .map_err(|error| {
+                    AppError::OpenVpnLaunch(format!("could not create OpenVPN exit event: {error}"))
+                })?;
+        #[cfg(windows)]
+        {
+            command.arg("--service").arg(exit_event.name()).arg("0");
+            command.creation_flags(crate::windows::CREATE_NO_WINDOW);
+        }
+
         command.stdout(Stdio::piped()).stderr(Stdio::piped());
 
         let mut child = command.spawn().map_err(map_spawn_error)?;
         let pid = child.id();
+        #[cfg(windows)]
+        let windows = WindowsControl {
+            exit_event,
+            process: pid.and_then(crate::windows::ProcessHandle::open),
+        };
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
         let child = Arc::new(AsyncMutex::new(child));
@@ -57,6 +102,8 @@ impl VpnBackend for DirectOpenVpnBackend {
             ChildHandle {
                 pid,
                 child: child.clone(),
+                #[cfg(windows)]
+                windows,
             },
         );
 
@@ -103,6 +150,24 @@ impl VpnBackend for DirectOpenVpnBackend {
         })
     }
 
+    #[cfg(windows)]
+    fn disconnect(&self, session_id: SessionId) -> Result<(), AppError> {
+        if let Some(handle) = self.children.lock().remove(&session_id) {
+            handle.windows.exit_event.signal();
+            // A plain thread (not tokio::spawn) so this also works from
+            // ConnectionManager::shutdown() on the main thread. If the app
+            // exits first, OpenVPN still sees the signalled event and stops.
+            std::thread::spawn(move || {
+                if let Some(process) = &handle.windows.process {
+                    process.wait_or_terminate(WINDOWS_GRACEFUL_EXIT_TIMEOUT);
+                }
+                drop(handle);
+            });
+        }
+        Ok(())
+    }
+
+    #[cfg(not(windows))]
     fn disconnect(&self, session_id: SessionId) -> Result<(), AppError> {
         if let Some(handle) = self.children.lock().remove(&session_id) {
             if let Some(pid) = handle.pid {
@@ -140,7 +205,8 @@ fn map_spawn_error(error: std::io::Error) -> AppError {
     }
 }
 
-#[cfg(test)]
+// These tests drive fake `#!/bin/sh` OpenVPN binaries, so they are Unix-only.
+#[cfg(all(test, unix))]
 mod tests {
     use std::fs;
     use std::os::unix::fs::PermissionsExt;

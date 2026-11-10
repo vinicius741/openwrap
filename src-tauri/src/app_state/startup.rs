@@ -17,11 +17,3 @@ pub fn reconcile_dns(
             error
         })
 }
-
-#[cfg(not(target_os = "macos"))]
-pub fn reconcile_dns(
-    _backend: &Arc<dyn VpnBackend>,
-    _paths: &AppPaths,
-) -> Result<(), openwrap_core::AppError> {
-    Ok(())
-}

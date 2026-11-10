@@ -18,15 +18,8 @@ pub struct OpenVpnDetection {
 pub fn detect_openvpn_binaries(override_path: Option<PathBuf>) -> OpenVpnDetection {
     let mut discovered_paths = Vec::new();
 
-    for candidate in [
-        override_path.as_ref(),
-        Some(&PathBuf::from("/opt/homebrew/sbin/openvpn")),
-        Some(&PathBuf::from("/usr/local/sbin/openvpn")),
-        Some(&PathBuf::from("/usr/bin/openvpn")),
-    ]
-    .into_iter()
-    .flatten()
-    {
+    let platform_candidates = platform_candidates();
+    for candidate in override_path.iter().chain(platform_candidates.iter()) {
         if is_executable_file(candidate) && !discovered_paths.contains(candidate) {
             discovered_paths.push(candidate.clone());
         }
@@ -38,6 +31,20 @@ pub fn detect_openvpn_binaries(override_path: Option<PathBuf>) -> OpenVpnDetecti
         discovered_paths,
         selected_path,
     }
+}
+
+#[cfg(not(windows))]
+fn platform_candidates() -> Vec<PathBuf> {
+    vec![
+        PathBuf::from("/opt/homebrew/sbin/openvpn"),
+        PathBuf::from("/usr/local/sbin/openvpn"),
+        PathBuf::from("/usr/bin/openvpn"),
+    ]
+}
+
+#[cfg(windows)]
+fn platform_candidates() -> Vec<PathBuf> {
+    crate::windows::openvpn_candidates()
 }
 
 fn is_executable_file(path: &std::path::Path) -> bool {

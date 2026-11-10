@@ -1,4 +1,6 @@
-//! Launch dependency installation in Terminal so sudo never passes through IPC.
+//! Launch dependency installation in a visible system window so administrator
+//! credentials never pass through IPC: Terminal + Homebrew on macOS, a winget
+//! console on Windows (the app already runs elevated there).
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -7,7 +9,9 @@ use serde::Serialize;
 use crate::app_state::AppState;
 use crate::error::CommandError;
 
+#[cfg(any(target_os = "macos", all(test, unix)))]
 const INSTALL_SCRIPT: &str = include_str!("../../../scripts/share/install-openvpn.sh");
+#[cfg(target_os = "macos")]
 const TERMINAL_SCRIPT: &str = r#"
 on run argv
     tell application "Terminal"
@@ -37,7 +41,14 @@ fn setup_error(message: impl Into<String>) -> CommandError {
             code: "runtime_install_failed".into(),
             title: "OpenVPN setup did not finish".into(),
             message,
-            suggested_fix: Some("Check the output in Terminal, then try again. Keep the Terminal window open until setup finishes.".into()),
+            suggested_fix: Some(
+                if cfg!(windows) {
+                    "Check the output in the setup window, or install OpenVPN Community manually from https://openvpn.net/community-downloads/ and restart OpenWrap."
+                } else {
+                    "Check the output in Terminal, then try again. Keep the Terminal window open until setup finishes."
+                }
+                .into(),
+            ),
             details_safe: None,
         },
     }
@@ -88,10 +99,12 @@ pub async fn install_runtime_dependencies(
     .map_err(|error| setup_error(error.to_string()))?
 }
 
+#[cfg(any(target_os = "macos", all(test, unix)))]
 fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
+#[cfg(any(target_os = "macos", all(test, unix)))]
 fn installer_wrapper(script: &str, result_path: &Path) -> String {
     let on_exit = format!(
         "result=$?; printf '%s\\n' \"$result\" > {}; if [ \"$result\" -ne 0 ]; then echo 'OpenVPN setup failed. Review the output above, then retry in OpenWrap.'; fi",
@@ -104,10 +117,48 @@ fn installer_wrapper(script: &str, result_path: &Path) -> String {
     )
 }
 
-fn run_installer(override_path: Option<&Path>) -> Result<(), CommandError> {
-    if !cfg!(target_os = "macos") {
-        return Err(setup_error("Automatic installation is available on macOS."));
+#[cfg(windows)]
+fn run_installer(_override_path: Option<&Path>) -> Result<(), CommandError> {
+    use std::os::windows::process::CommandExt;
+
+    // CREATE_NEW_CONSOLE: show winget's progress in its own window. The child
+    // inherits OpenWrap's elevated token, so the installer needs no extra prompt.
+    const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
+    let status = std::process::Command::new("winget")
+        .args([
+            "install",
+            "--id",
+            "OpenVPNTechnologies.OpenVPN",
+            "--exact",
+            "--accept-package-agreements",
+            "--accept-source-agreements",
+        ])
+        .creation_flags(CREATE_NEW_CONSOLE)
+        .status()
+        .map_err(|error| match error.kind() {
+            std::io::ErrorKind::NotFound => {
+                setup_error("winget (App Installer) is not available on this PC.")
+            }
+            _ => setup_error(error.to_string()),
+        })?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(setup_error(
+            "The OpenVPN installer failed or was cancelled.",
+        ))
     }
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
+fn run_installer(_override_path: Option<&Path>) -> Result<(), CommandError> {
+    Err(setup_error(
+        "Automatic installation is available on macOS and Windows.",
+    ))
+}
+
+#[cfg(target_os = "macos")]
+fn run_installer(override_path: Option<&Path>) -> Result<(), CommandError> {
     // A private directory prevents another user from replacing the script or result.
     let dir = tempfile::Builder::new()
         .prefix("openwrap-setup-")
@@ -140,7 +191,8 @@ fn run_installer(override_path: Option<&Path>) -> Result<(), CommandError> {
     }
 }
 
-#[cfg(test)]
+// These tests run the macOS installer wrapper through /bin/bash.
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 

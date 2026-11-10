@@ -1,5 +1,6 @@
 import { useState } from 'react'
 
+import { isWindows } from '../../lib/platform'
 import { normalizeCommandError } from '../../lib/tauri'
 import { useAppStore } from '../../store/appStore'
 import type { UserFacingError } from '../../types/ipc'
@@ -35,7 +36,9 @@ export function UpdateBanner() {
         {installing ? (
           <p className="update-progress">
             {downloadDone
-              ? 'Installing… macOS may ask for your password.'
+              ? isWindows
+                ? 'Installing… Windows may ask you to approve the installer.'
+                : 'Installing… macOS may ask for your password.'
               : formatUpdateProgress(updateProgress)}
           </p>
         ) : null}

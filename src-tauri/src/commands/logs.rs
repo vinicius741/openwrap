@@ -1,7 +1,5 @@
 //! Tauri commands for log management
 
-use std::process::Command;
-
 use crate::app_state::AppState;
 use crate::error::CommandError;
 
@@ -9,13 +7,7 @@ use crate::error::CommandError;
 pub fn reveal_logs_folder(state: tauri::State<'_, AppState>) -> Result<(), CommandError> {
     let logs_dir = state.paths.sessions_logs_dir();
 
-    Command::new("/usr/bin/open")
-        .arg("-R")
-        .arg(&logs_dir)
-        .status()
-        .map_err(|error| CommandError::from(openwrap_core::AppError::Io(error)))?;
-
-    Ok(())
+    super::reveal::reveal_in_file_manager(&logs_dir)
 }
 
 #[tauri::command]
