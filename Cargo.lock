@@ -2354,7 +2354,7 @@ checksum = "7e036b411754132fd6b74e94b74e9a13c5cf606fa93d1885c35860d3060820b1"
 
 [[package]]
 name = "openwrap-app"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "base64 0.23.1",
  "cc",
@@ -2377,7 +2377,7 @@ dependencies = [
 
 [[package]]
 name = "openwrap-core"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2399,7 +2399,7 @@ dependencies = [
 
 [[package]]
 name = "openwrap-helper"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "dirs",
  "libc",
