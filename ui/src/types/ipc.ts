@@ -134,6 +134,12 @@ export interface Settings {
 
 export interface RuntimeDependencies {
   openvpn_path: string | null
+  /** Version reported by the binary, when it starts. */
+  openvpn_version: string | null
+  /** Why the binary cannot start, when it is installed but broken. */
+  openvpn_problem: string | null
+  /** The binary comes from Homebrew, so OpenWrap can update or reinstall it. */
+  repair_available: boolean
 }
 
 export type SessionOutcome = 'success' | 'failed' | 'cancelled' | 'in_progress'

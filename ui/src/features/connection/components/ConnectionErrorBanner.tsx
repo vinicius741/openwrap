@@ -1,6 +1,20 @@
 import type { UserFacingError } from '../../../types/ipc'
 import { RuntimeSetup } from '../../settings/runtime-setup'
 
+/**
+ * Failures where OpenVPN itself did not run properly. An OpenVPN left broken
+ * or outdated by a Homebrew update fails this way, so the banner offers to
+ * update it.
+ */
+const OPENVPN_RUNTIME_FAILURES = new Set([
+  'process_exit',
+  'process_terminated',
+  'process_not_found',
+  'process_permission_denied',
+  'openvpn_launch_failed',
+  'openvpn_options_error',
+])
+
 interface ConnectionErrorBannerProps {
   error: UserFacingError | null
   logFilePath: string | null | undefined
@@ -25,6 +39,7 @@ export function ConnectionErrorBanner({ error, logFilePath, onShowLogs, onReveal
         ) : null}
         {error.suggested_fix ? <p>{error.suggested_fix}</p> : null}
         {error.code === 'openvpn_not_found' ? <RuntimeSetup /> : null}
+        {OPENVPN_RUNTIME_FAILURES.has(error.code) ? <RuntimeSetup afterFailure /> : null}
         {logFilePath ? (
           <>
             <p className="error-path-label">Saved log file</p>

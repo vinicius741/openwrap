@@ -12,7 +12,7 @@ pub mod storage;
 pub use app_state::AppPaths;
 pub use connection::{ConnectionManager, CoreEvent};
 pub use errors::AppError;
-pub use openvpn::runtime::detect_openvpn_binaries;
+pub use openvpn::runtime::{detect_openvpn_binaries, probe_openvpn};
 pub use profiles::repository::ProfileRepository;
 pub use storage::sqlite::SqliteRepository;
 

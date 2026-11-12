@@ -4,7 +4,7 @@ import { Sidebar } from '../components/Sidebar'
 import { TopBar } from '../components/TopBar'
 import { ProfileDetail } from '../features/profiles/ProfileDetail'
 import { SettingsView } from '../features/settings/SettingsView'
-import { RuntimeSetup } from '../features/settings/runtime-setup'
+import { OpenVpnBrokenBanner, RuntimeSetup } from '../features/settings/runtime-setup'
 import { useConnectionEvents } from '../features/connection/useConnectionEvents'
 import { HelperOutdatedBanner, UpdateBanner } from '../features/updates/UpdateBanner'
 import { useUpdateEvents } from '../features/updates/useUpdateEvents'
@@ -16,6 +16,7 @@ export function App() {
   const selectedProfileId = useAppStore((state) => state.selectedProfileId)
   const error = useAppStore((state) => state.error)
   const setError = useAppStore((state) => state.setError)
+  const checkRuntimeDependencies = useAppStore((state) => state.checkRuntimeDependencies)
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
 
@@ -25,6 +26,12 @@ export function App() {
   useEffect(() => {
     void loadInitial()
   }, [loadInitial])
+
+  // Notice at launch when OpenVPN can no longer start (for example after a
+  // Homebrew update), instead of only when a connection fails.
+  useEffect(() => {
+    void checkRuntimeDependencies()
+  }, [checkRuntimeDependencies])
 
   return (
     <div className="shell">
@@ -40,6 +47,7 @@ export function App() {
         <main className="content">
           <UpdateBanner />
           <HelperOutdatedBanner />
+          <OpenVpnBrokenBanner />
           {error ? (
             <div className="error-banner app-error-banner">
               <div>

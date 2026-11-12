@@ -14,23 +14,23 @@ export interface WhatsNewNotes {
 }
 
 export const WHATS_NEW: WhatsNewNotes = {
-  id: '2026-11-listed-dns-domains',
-  headline: 'Choose which sites use the VPN for DNS',
+  id: '2026-11-openvpn-repair',
+  headline: 'OpenWrap can now repair OpenVPN',
   points: [
     {
-      title: 'New DNS mode: only listed domains',
+      title: 'Fixes OpenVPN after a Homebrew update',
       detail:
-        'A profile can now send DNS lookups to the VPN only for the domains you list. Everything else uses your normal DNS.',
+        'If OpenVPN stops working, OpenWrap tells you and offers Repair OpenVPN, which updates it with Homebrew in Terminal.',
     },
     {
-      title: 'Paste a link to add a domain',
+      title: 'Connection failing? Try Update OpenVPN',
       detail:
-        'Paste any address from your browser and OpenWrap picks out the domain. Changes apply when you reconnect.',
+        'When a connection fails, the error now shows your OpenVPN version and an Update OpenVPN button. It is also in Settings.',
     },
     {
-      title: 'Nothing changes until you switch',
+      title: 'Keep "All DNS through VPN" for now',
       detail:
-        'Existing profiles keep sending DNS through the VPN as before. You can switch in Profile settings, under DNS.',
+        'The "Only listed domains" DNS mode from the previous version does not work yet. It will be fixed in a later update.',
     },
   ],
 }

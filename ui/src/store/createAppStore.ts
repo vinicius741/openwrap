@@ -22,7 +22,12 @@ import {
   reduceAppendLogs,
 } from './reducers/connectionEvents'
 import { importProfile } from '../features/profiles/api'
-import { getRuntimeDependencies, installRuntimeDependencies, updateSettings } from '../features/settings/api'
+import {
+  getRuntimeDependencies,
+  installRuntimeDependencies,
+  repairRuntimeDependencies,
+  updateSettings,
+} from '../features/settings/api'
 import { checkForUpdate, getAppInfo, installHelper, installUpdate } from '../features/updates/api'
 import { hasActiveSession } from '../features/connection/model/status'
 import { normalizeCommandError } from '../lib/tauri'
@@ -35,6 +40,7 @@ import type {
   LogEntry,
   ProfileDetail,
   ProfileSummary,
+  RuntimeDependencies,
   Settings,
   UpdateProgress,
   UserFacingError,
@@ -90,6 +96,8 @@ type AppStore = UpdateSlice & SettingsSlice & {
   saveSettings: (verboseLogging: boolean) => Promise<void>
   checkRuntimeDependencies: () => Promise<void>
   installRuntimeDependencies: () => Promise<void>
+  /** Updates or reinstalls Homebrew's OpenVPN when it is broken or out of date. */
+  repairRuntimeDependencies: () => Promise<void>
   loadAppInfo: () => Promise<void>
   installHelper: () => Promise<void>
   /** `manual` surfaces errors and "up to date"; the startup check stays silent. */
@@ -128,6 +136,16 @@ export const createAppStore = () => {
           }
         })
       })
+
+    const runtimeIsBusy = () => {
+      const status = get().runtimeStatus
+      return status === 'installing' || status === 'repairing' || status === 'checking'
+    }
+
+    const runtimeStatusFor = (dependencies: RuntimeDependencies) => {
+      if (!dependencies.openvpn_path) return 'missing' as const
+      return dependencies.openvpn_problem ? ('broken' as const) : ('ready' as const)
+    }
 
     /** Flags a DNS change that the profile's running session will not pick up. */
     const markDnsChangePending = (profileId: string) => {
@@ -453,24 +471,24 @@ export const createAppStore = () => {
       },
 
       checkRuntimeDependencies: async () => {
-        if (get().runtimeStatus === 'installing' || get().runtimeStatus === 'checking') return
+        if (runtimeIsBusy()) return
         set({ runtimeStatus: 'checking', runtimeError: null })
         try {
           const runtimeDependencies = await getRuntimeDependencies()
-          set({ runtimeDependencies, runtimeStatus: runtimeDependencies.openvpn_path ? 'ready' : 'missing' })
+          set({ runtimeDependencies, runtimeStatus: runtimeStatusFor(runtimeDependencies) })
         } catch (error) {
           set({ runtimeStatus: 'error', runtimeError: normalizeCommandError(error) })
         }
       },
 
       installRuntimeDependencies: async () => {
-        if (get().runtimeStatus === 'installing' || get().runtimeStatus === 'checking') return
+        if (runtimeIsBusy()) return
         set({ runtimeStatus: 'installing', runtimeError: null })
         try {
           const runtimeDependencies = await installRuntimeDependencies()
           set((state) => ({
             runtimeDependencies,
-            runtimeStatus: 'ready',
+            runtimeStatus: runtimeStatusFor(runtimeDependencies),
             error: state.error?.code === 'openvpn_not_found' ? null : state.error,
             connection: state.connection?.last_error?.code === 'openvpn_not_found'
               ? { ...state.connection, last_error: null }
@@ -478,6 +496,23 @@ export const createAppStore = () => {
           }))
         } catch (error) {
           set({ runtimeStatus: 'error', runtimeError: normalizeCommandError(error) })
+        }
+      },
+
+      repairRuntimeDependencies: async () => {
+        if (runtimeIsBusy()) return
+        set({ runtimeStatus: 'repairing', runtimeError: null })
+        try {
+          const runtimeDependencies = await repairRuntimeDependencies()
+          set({ runtimeDependencies, runtimeStatus: runtimeStatusFor(runtimeDependencies) })
+        } catch (error) {
+          set({ runtimeStatus: 'error', runtimeError: normalizeCommandError(error) })
+          try {
+            // Show what is installed now, whatever the repair managed to do.
+            set({ runtimeDependencies: await getRuntimeDependencies() })
+          } catch {
+            // Keep the previous detection result.
+          }
         }
       },
 
