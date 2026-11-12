@@ -75,6 +75,10 @@ pub struct Profile {
     pub updated_at: DateTime<Utc>,
     pub dns_intent: Vec<String>,
     pub dns_policy: DnsPolicy,
+    /// Domains the user listed for `DnsPolicy::SplitDnsPreferred`: only names
+    /// under these domains are resolved through the VPN's DNS servers.
+    #[serde(default)]
+    pub dns_match_domains: Vec<String>,
     pub credential_mode: CredentialMode,
     pub credential_strategy: CredentialStrategy,
     pub remote_summary: String,

@@ -8,7 +8,7 @@ use crate::app_state::AppPaths;
 use crate::connection::backoff::retry_delay_seconds;
 use crate::connection::log_parser::{classify_signal, sanitize_log};
 use crate::connection::ConnectionState;
-use crate::dns::{extract_dns_directives, DnsObserver, DnsPolicy};
+use crate::dns::{extract_dns_directives, DnsObserver};
 use crate::errors::UserFacingError;
 use crate::logging::{SessionOutcome, SharedSessionLogManager};
 use crate::openvpn::ReconcileDnsRequest;
@@ -17,15 +17,12 @@ use crate::{ProfileRepository, VpnBackend};
 
 use super::errors::{
     apply_reconcile_result, apply_terminal_error, dns_restore_error, persist_failed_connection_log,
-    process_exit_error, push_manager_warning,
+    process_exit_error,
 };
 use super::runtime::cleanup_runtime_artifacts;
 use super::state::{
     session_is_current, ActiveSession, ConnectionPlan, ManagerState, MAX_LOG_ENTRIES,
 };
-
-const AUTO_PROMOTION_PERSIST_FAILED_MESSAGE: &str =
-    "OpenWrap switched this connection to Full override, but could not save that policy for future connections.";
 
 pub enum ExitAction {
     Stop,
@@ -39,7 +36,6 @@ pub fn handle_log(
     paths: &AppPaths,
     state: &Arc<Mutex<ManagerState>>,
     events: &broadcast::Sender<super::state::CoreEvent>,
-    repository: &Arc<dyn ProfileRepository>,
     profile_id: &ProfileId,
     backend: &Arc<dyn VpnBackend>,
     dns_observer: &Arc<dyn DnsObserver>,
@@ -53,7 +49,6 @@ pub fn handle_log(
     let signal = classify_signal(line);
     let mut disconnect_session = None;
     let mut emit_state_changed = false;
-    let mut persist_auto_promoted_policy = false;
 
     session_log.log_openvpn(&format!("[{}] {}", stream, line));
 
@@ -129,16 +124,6 @@ pub fn handle_log(
                 if changed {
                     state_guard.snapshot.dns_observation = observation.clone();
                     session_log.log_dns(&format_dns_observation(observation));
-                    if observation.auto_promoted_policy == Some(DnsPolicy::FullOverride)
-                        && !state_guard.auto_promoted_policy_persisted
-                    {
-                        state_guard.auto_promoted_policy_persisted = true;
-                        if let Some(plan) = state_guard.reconnect_plan.as_mut() {
-                            plan.detail.profile.dns_policy = DnsPolicy::FullOverride;
-                        }
-                        persist_auto_promoted_policy = true;
-                        session_log.log_dns("DNS policy auto-promoted to FullOverride");
-                    }
                     let _ = events.send(super::state::CoreEvent::DnsObserved(observation.clone()));
                 }
             }
@@ -156,18 +141,6 @@ pub fn handle_log(
 
     if let Some(session_id) = disconnect_session {
         let _ = backend.disconnect(session_id);
-    }
-
-    if persist_auto_promoted_policy {
-        if let Err(error) =
-            repository.update_profile_dns_policy(profile_id, DnsPolicy::FullOverride)
-        {
-            push_manager_warning(
-                state,
-                events,
-                format!("{AUTO_PROMOTION_PERSIST_FAILED_MESSAGE} {error}"),
-            );
-        }
     }
 }
 
@@ -217,7 +190,6 @@ pub fn handle_exit(
     if state_guard.snapshot.state == ConnectionState::Disconnecting {
         state_guard.pending_credentials = None;
         state_guard.reconnect_plan = None;
-        state_guard.auto_promoted_policy_persisted = false;
         if let Err(error) = reconcile_result {
             session_log.log_core(&format!("DNS reconciliation failed: {}", error));
             apply_terminal_error(
@@ -286,7 +258,6 @@ pub fn handle_exit(
     apply_terminal_error(&mut state_guard.snapshot, log_file_path, profile_id, error);
     state_guard.pending_credentials = None;
     state_guard.reconnect_plan = None;
-    state_guard.auto_promoted_policy_persisted = false;
     let _ = events.send(super::state::CoreEvent::DnsObserved(
         state_guard.snapshot.dns_observation.clone(),
     ));
@@ -343,9 +314,6 @@ fn format_dns_observation(obs: &crate::dns::DnsObservation) -> String {
     }
     if !obs.runtime_pushed.is_empty() {
         parts.push(format!("pushed={}", obs.runtime_pushed.join("|")));
-    }
-    if let Some(auto) = &obs.auto_promoted_policy {
-        parts.push(format!("auto_promoted={:?}", auto));
     }
     if let Some(restore) = &obs.restore_status {
         parts.push(format!("restore_status={:?}", restore));

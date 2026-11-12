@@ -44,6 +44,7 @@ pub fn map_profile(row: &Row<'_>) -> rusqlite::Result<Profile> {
             .with_timezone(&Utc),
         dns_intent: serde_json::from_str(&row.get::<_, String>(8)?).unwrap_or_default(),
         dns_policy: dns_policy_from_string(&row.get::<_, String>(9)?),
+        dns_match_domains: serde_json::from_str(&row.get::<_, String>(16)?).unwrap_or_default(),
         credential_mode: match row.get::<_, String>(10)?.as_str() {
             "UserPass" => crate::profiles::CredentialMode::UserPass,
             _ => crate::profiles::CredentialMode::None,

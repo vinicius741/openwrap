@@ -11,6 +11,7 @@ import {
   refreshProfiles,
   deleteProfileAction,
   updateDnsPolicy,
+  updateDnsMatchDomains,
   clearGeneratedPassword,
   configureGeneratedPassword,
 } from './actions/profileActions'
@@ -23,11 +24,14 @@ import {
 import { importProfile } from '../features/profiles/api'
 import { getRuntimeDependencies, installRuntimeDependencies, updateSettings } from '../features/settings/api'
 import { checkForUpdate, getAppInfo, installHelper, installUpdate } from '../features/updates/api'
+import { hasActiveSession } from '../features/connection/model/status'
 import { normalizeCommandError } from '../lib/tauri'
 import type { ImportWarningState } from '../types/domain'
 import type {
   ConnectionSnapshot,
+  ConnectionState,
   CredentialPrompt,
+  DnsPolicy,
   LogEntry,
   ProfileDetail,
   ProfileSummary,
@@ -44,6 +48,11 @@ type AppStore = UpdateSlice & SettingsSlice & {
   logs: UiLogEntry[]
   nextLogId: number
   pendingCredentialPrompt: CredentialPrompt | null
+  /**
+   * Profile whose DNS settings changed while it had an active session. DNS is
+   * set up when a session starts, so the change waits for the next connect.
+   */
+  dnsChangePendingProfileId: string | null
   settings: Settings | null
   importWarning: ImportWarningState | null
   error: UserFacingError | null
@@ -52,7 +61,8 @@ type AppStore = UpdateSlice & SettingsSlice & {
   refreshSelectedProfile: () => Promise<void>
   refreshProfiles: () => Promise<void>
   deleteProfile: (profileId: string) => Promise<void>
-  updateSelectedProfileDnsPolicy: (dnsPolicy: 'SplitDnsPreferred' | 'FullOverride' | 'ObserveOnly') => Promise<void>
+  updateSelectedProfileDnsPolicy: (dnsPolicy: DnsPolicy) => Promise<void>
+  updateSelectedProfileDnsMatchDomains: (domains: string[]) => Promise<void>
   configureSelectedProfileGeneratedPassword: (input: {
     username: string
     pin: string
@@ -63,6 +73,8 @@ type AppStore = UpdateSlice & SettingsSlice & {
   approveImportWarnings: () => Promise<void>
   connectSelected: () => Promise<void>
   disconnect: () => Promise<void>
+  /** Disconnects, waits for the session to end, then connects the selected profile. */
+  reconnectSelected: () => Promise<void>
   submitCredentials: (input: {
     username: string
     password: string
@@ -87,8 +99,44 @@ type AppStore = UpdateSlice & SettingsSlice & {
   dismissUpdateBanner: () => void
 }
 
+/** How long a reconnect waits for the old session to finish disconnecting. */
+const RECONNECT_DISCONNECT_TIMEOUT_MS = 30_000
+
 export const createAppStore = () => {
-  return create<AppStore>((set, get) => {
+  return create<AppStore>((set, get, api) => {
+    const currentState = (): ConnectionState => get().connection?.state ?? 'idle'
+
+    /** Resolves with the first connection state that satisfies `done`, or null on timeout. */
+    const waitForConnectionState = (
+      done: (state: ConnectionState) => boolean,
+      timeoutMs: number,
+    ): Promise<ConnectionState | null> =>
+      new Promise((resolve) => {
+        if (done(currentState())) {
+          resolve(currentState())
+          return
+        }
+        const timer = window.setTimeout(() => {
+          unsubscribe()
+          resolve(null)
+        }, timeoutMs)
+        const unsubscribe = api.subscribe(() => {
+          if (done(currentState())) {
+            window.clearTimeout(timer)
+            unsubscribe()
+            resolve(currentState())
+          }
+        })
+      })
+
+    /** Flags a DNS change that the profile's running session will not pick up. */
+    const markDnsChangePending = (profileId: string) => {
+      const { connection } = get()
+      if (connection?.profile_id === profileId && hasActiveSession(connection)) {
+        set({ dnsChangePendingProfileId: profileId })
+      }
+    }
+
     const mergeProfileDetail = (updatedProfile: ProfileDetail) => {
       set((state) => ({
         profiles: state.profiles.map((profile) =>
@@ -115,6 +163,7 @@ export const createAppStore = () => {
       ...settingsInitialState,
       ...importInitialState,
       ...updateInitialState,
+      dnsChangePendingProfileId: null,
       error: null,
       loadInitial: async () => {
         try {
@@ -178,6 +227,20 @@ export const createAppStore = () => {
         try {
           const updatedProfile = await updateDnsPolicy(selectedProfile.profile.id, dnsPolicy)
           mergeProfileDetail(updatedProfile)
+          markDnsChangePending(updatedProfile.profile.id)
+          set({ error: null })
+        } catch (error) {
+          set({ error: normalizeCommandError(error) })
+        }
+      },
+
+      updateSelectedProfileDnsMatchDomains: async (domains) => {
+        const selectedProfile = get().selectedProfile
+        if (!selectedProfile) return
+        try {
+          const updatedProfile = await updateDnsMatchDomains(selectedProfile.profile.id, domains)
+          mergeProfileDetail(updatedProfile)
+          markDnsChangePending(updatedProfile.profile.id)
           set({ error: null })
         } catch (error) {
           set({ error: normalizeCommandError(error) })
@@ -262,7 +325,36 @@ export const createAppStore = () => {
         try {
           get().clearLogs()
           const connection = await connectSelected(profileId)
-          set({ connection, error: null })
+          set({ connection, dnsChangePendingProfileId: null, error: null })
+        } catch (error) {
+          set({ error: normalizeCommandError(error) })
+        }
+      },
+
+      reconnectSelected: async () => {
+        const profileId = get().selectedProfileId
+        if (!profileId) return
+        try {
+          set({ connection: await disconnect(), error: null })
+          const settled = await waitForConnectionState(
+            (state) => state === 'idle' || state === 'error',
+            RECONNECT_DISCONNECT_TIMEOUT_MS,
+          )
+          if (settled === null) {
+            set({
+              error: {
+                code: 'reconnect_timeout',
+                title: 'Still disconnecting',
+                message: 'OpenWrap is still closing the previous connection.',
+                suggested_fix: 'Press Connect once the status shows Idle.',
+                details_safe: null,
+              },
+            })
+            return
+          }
+          // A disconnect that ended in an error is already shown; do not connect over it.
+          if (settled === 'error') return
+          await get().connectSelected()
         } catch (error) {
           set({ error: normalizeCommandError(error) })
         }
@@ -318,6 +410,10 @@ export const createAppStore = () => {
         const { logs, nextLogId } = get()
         const result = reduceConnection(logs, nextLogId, snapshot)
         set({ ...result, error: null })
+        // Once the session is gone, the next connect uses the current DNS settings.
+        if (!hasActiveSession(snapshot)) {
+          set({ dnsChangePendingProfileId: null })
+        }
       },
 
       setDnsObservation: (dnsObservation) => {

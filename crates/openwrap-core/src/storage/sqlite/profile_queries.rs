@@ -5,7 +5,7 @@ use chrono::Utc;
 use parking_lot::Mutex;
 use rusqlite::{params, Connection, OptionalExtension};
 
-use crate::dns::DnsPolicy;
+use crate::dns::{normalize_match_domains, DnsPolicy, MatchDomainError, MAX_MATCH_DOMAINS};
 use crate::errors::AppError;
 use crate::profiles::repository::ProfileRepository;
 use crate::profiles::{
@@ -51,7 +51,8 @@ impl SqliteRepository {
                 remote_summary TEXT NOT NULL,
                 has_saved_credentials INTEGER NOT NULL DEFAULT 0,
                 validation_status TEXT NOT NULL,
-                last_used_at TEXT NULL
+                last_used_at TEXT NULL,
+                dns_match_domains_json TEXT NOT NULL DEFAULT '[]'
             );
 
             CREATE TABLE IF NOT EXISTS profile_assets (
@@ -97,6 +98,23 @@ impl SqliteRepository {
             "credential_strategy",
             "TEXT NOT NULL DEFAULT 'Prompt'",
         )?;
+        let added_match_domains = ensure_column(
+            &connection,
+            "profiles",
+            "dns_match_domains_json",
+            "TEXT NOT NULL DEFAULT '[]'",
+        )?;
+        if added_match_domains {
+            // Before listed domains existed, a split-DNS profile fell back to
+            // full override whenever the VPN pushed no domains. That fallback
+            // is gone, so profiles from older versions move to full override
+            // once to keep resolving VPN names until domains are listed.
+            connection.execute(
+                "UPDATE profiles SET dns_policy = 'FullOverride'
+                 WHERE dns_policy = 'SplitDnsPreferred'",
+                [],
+            )?;
+        }
         Ok(())
     }
 
@@ -112,8 +130,9 @@ impl ProfileRepository for SqliteRepository {
             "INSERT OR REPLACE INTO profiles (
                 id, name, source_filename, managed_dir, managed_ovpn_path, original_import_path,
                 created_at, updated_at, dns_intent_json, dns_policy, credential_mode, credential_strategy,
-                remote_summary, has_saved_credentials, validation_status, last_used_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, NULL)",
+                remote_summary, has_saved_credentials, validation_status, last_used_at,
+                dns_match_domains_json
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, NULL, ?16)",
             params![
                 import.profile.id.to_string(),
                 import.profile.name,
@@ -131,6 +150,8 @@ impl ProfileRepository for SqliteRepository {
                 import.profile.remote_summary,
                 import.profile.has_saved_credentials as i64,
                 format!("{:?}", import.profile.validation_status),
+                serde_json::to_string(&import.profile.dns_match_domains)
+                    .map_err(|error| AppError::Serialization(error.to_string()))?,
             ],
         )?;
 
@@ -195,7 +216,8 @@ impl ProfileRepository for SqliteRepository {
             .query_row(
                 "SELECT id, name, source_filename, managed_dir, managed_ovpn_path, original_import_path,
                         created_at, updated_at, dns_intent_json, dns_policy, credential_mode, credential_strategy,
-                        remote_summary, has_saved_credentials, validation_status, last_used_at
+                        remote_summary, has_saved_credentials, validation_status, last_used_at,
+                        dns_match_domains_json
                  FROM profiles WHERE id = ?1",
                 params![profile_id.to_string()],
                 map_profile,
@@ -286,6 +308,40 @@ impl ProfileRepository for SqliteRepository {
             "UPDATE profiles SET dns_policy = ?1, updated_at = ?2 WHERE id = ?3",
             params![
                 dns_policy_to_string(&policy),
+                Utc::now().to_rfc3339(),
+                profile_id.to_string()
+            ],
+        )?;
+        self.get_profile(profile_id)
+    }
+
+    fn update_profile_dns_match_domains(
+        &self,
+        profile_id: &ProfileId,
+        domains: Vec<String>,
+    ) -> Result<ProfileDetail, AppError> {
+        let domains = normalize_match_domains(&domains).map_err(|error| match error {
+            MatchDomainError::Invalid(value) => AppError::Validation {
+                title: "Invalid domain".into(),
+                message: format!(
+                    "\"{value}\" is not a valid domain. Use a name such as example.com."
+                ),
+                directive: None,
+                line: None,
+            },
+            MatchDomainError::TooMany => AppError::Validation {
+                title: "Too many domains".into(),
+                message: format!("A profile can list at most {MAX_MATCH_DOMAINS} domains."),
+                directive: None,
+                line: None,
+            },
+        })?;
+        let domains_json = serde_json::to_string(&domains)
+            .map_err(|error| AppError::Serialization(error.to_string()))?;
+        self.connection.lock().execute(
+            "UPDATE profiles SET dns_match_domains_json = ?1, updated_at = ?2 WHERE id = ?3",
+            params![
+                domains_json,
                 Utc::now().to_rfc3339(),
                 profile_id.to_string()
             ],

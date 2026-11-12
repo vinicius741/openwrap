@@ -55,8 +55,6 @@ mod tests {
         last_selected: Mutex<Option<ProfileId>>,
         touch_count: Mutex<u32>,
         saved_credentials: Mutex<bool>,
-        dns_policy_updates: Mutex<Vec<DnsPolicy>>,
-        dns_policy_update_error: Mutex<Option<String>>,
     }
 
     impl ProfileRepository for FakeRepository {
@@ -123,13 +121,18 @@ mod tests {
             _profile_id: &ProfileId,
             policy: DnsPolicy,
         ) -> Result<ProfileDetail, AppError> {
-            if let Some(error) = self.dns_policy_update_error.lock().as_ref() {
-                return Err(AppError::ConnectionState(error.clone()));
-            }
-
-            self.dns_policy_updates.lock().push(policy.clone());
             let mut detail = self.detail.clone();
             detail.profile.dns_policy = policy;
+            Ok(detail)
+        }
+
+        fn update_profile_dns_match_domains(
+            &self,
+            _profile_id: &ProfileId,
+            domains: Vec<String>,
+        ) -> Result<ProfileDetail, AppError> {
+            let mut detail = self.detail.clone();
+            detail.profile.dns_match_domains = domains;
             Ok(detail)
         }
 
@@ -334,6 +337,7 @@ mod tests {
                 updated_at: Utc::now(),
                 dns_intent: vec!["DNS 1.1.1.1".into()],
                 dns_policy: DnsPolicy::SplitDnsPreferred,
+                dns_match_domains: Vec::new(),
                 credential_mode,
                 credential_strategy,
                 remote_summary: "example.com:1194".into(),
@@ -361,8 +365,6 @@ mod tests {
             last_selected: Mutex::new(None),
             touch_count: Mutex::new(0),
             saved_credentials: Mutex::new(saved_secret.is_some()),
-            dns_policy_updates: Mutex::new(Vec::new()),
-            dns_policy_update_error: Mutex::new(None),
         });
         let backend = FakeBackend::default();
         let secret_store = Arc::new(FakeSecretStore::default());
@@ -673,40 +675,6 @@ mod tests {
         assert_eq!(backend.reconcile_count(), 1);
         assert!(!runtime_dir.exists());
         assert_eq!(manager.snapshot().state, ConnectionState::Idle);
-    }
-
-    #[tokio::test]
-    async fn auto_promotion_persists_full_override_once_per_connection() {
-        let (manager, backend, profile_id, _, repository) =
-            build_manager(CredentialMode::None, None);
-        let session = backend.queue_session(Some(53));
-
-        manager.connect(profile_id.to_string()).await.unwrap();
-
-        session
-            .tx
-            .send(BackendEvent::Stdout(
-                "OPENWRAP_DNS_WARNING: AUTO_PROMOTED_FULL_OVERRIDE".into(),
-            ))
-            .unwrap();
-        session
-            .tx
-            .send(BackendEvent::Stdout(
-                "OPENWRAP_DNS_WARNING: AUTO_PROMOTED_FULL_OVERRIDE".into(),
-            ))
-            .unwrap();
-        tokio::task::yield_now().await;
-
-        assert_eq!(
-            repository.dns_policy_updates.lock().as_slice(),
-            &[DnsPolicy::FullOverride]
-        );
-        assert_eq!(
-            manager.snapshot().dns_observation.auto_promoted_policy,
-            Some(DnsPolicy::FullOverride)
-        );
-
-        session.tx.send(BackendEvent::Exited(Some(0))).unwrap();
     }
 
     #[tokio::test]

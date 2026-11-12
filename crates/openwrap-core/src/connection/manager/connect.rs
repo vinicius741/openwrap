@@ -51,7 +51,6 @@ pub fn start_connect_attempt(
         state_guard.reconnect_plan = Some(plan.clone());
         if !is_retry {
             state_guard.logs.clear();
-            state_guard.auto_promoted_policy_persisted = false;
         }
         state_guard.snapshot.state = crate::connection::state_machine::transition(
             state_guard.snapshot.state.clone(),
@@ -69,6 +68,7 @@ pub fn start_connect_attempt(
         state_guard.snapshot.dns_observation = dns_observer.from_profile(
             &plan.detail.profile.dns_intent,
             plan.detail.profile.dns_policy.clone(),
+            &plan.detail.profile.dns_match_domains,
         );
         let dns_obs = &state_guard.snapshot.dns_observation;
         session_log.log_dns(&format!(
@@ -180,6 +180,7 @@ pub fn start_connect_attempt(
     let observation = dns_observer.from_profile(
         &plan.detail.profile.dns_intent,
         plan.detail.profile.dns_policy.clone(),
+        &plan.detail.profile.dns_match_domains,
     );
     let active_session = {
         let mut state_guard = state.lock();
@@ -242,7 +243,6 @@ pub fn start_connect_attempt(
                     &task_paths,
                     &task_state,
                     &task_events,
-                    &task_repository,
                     &task_profile_id,
                     &task_backend,
                     &task_dns_observer,
@@ -256,7 +256,6 @@ pub fn start_connect_attempt(
                     &task_paths,
                     &task_state,
                     &task_events,
-                    &task_repository,
                     &task_profile_id,
                     &task_backend,
                     &task_dns_observer,

@@ -8,6 +8,7 @@ import { RuntimeSetup } from '../features/settings/runtime-setup'
 import { useConnectionEvents } from '../features/connection/useConnectionEvents'
 import { HelperOutdatedBanner, UpdateBanner } from '../features/updates/UpdateBanner'
 import { useUpdateEvents } from '../features/updates/useUpdateEvents'
+import { WhatsNewDialog } from '../features/updates/WhatsNewDialog'
 import { useAppStore } from '../store/appStore'
 
 export function App() {
@@ -57,6 +58,8 @@ export function App() {
           <ProfileDetail key={selectedProfileId ?? 'empty'} />
         </main>
       </div>
+
+      <WhatsNewDialog />
 
       {isSettingsOpen && (
         <>

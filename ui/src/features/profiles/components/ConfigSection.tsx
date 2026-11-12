@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import type { ProfileDetail } from '../../../types/ipc'
+import type { DnsPolicy, ProfileDetail } from '../../../types/ipc'
+import { DnsSettings } from './DnsSettings'
 
 const PIN_MASK = '••••'
 const TOTP_MASK = '••••••••'
@@ -9,17 +10,13 @@ interface ConfigSectionProps {
   isSavingPassword: boolean
   isClearingPassword: boolean
   isUpdatingDns: boolean
-  onDnsPolicyChange: (policy: 'SplitDnsPreferred' | 'FullOverride' | 'ObserveOnly') => Promise<void>
+  dnsNeedsReconnect: boolean
+  isReconnecting: boolean
+  onDnsPolicyChange: (policy: DnsPolicy) => Promise<void>
+  onDnsDomainsChange: (domains: string[]) => Promise<void>
+  onReconnect: () => Promise<void>
   onGeneratedPasswordSave: (input: { username: string; pin: string; totpSecret: string }) => Promise<void>
   onGeneratedPasswordClear: () => Promise<void>
-}
-
-function isDnsPolicy(value: string): value is 'SplitDnsPreferred' | 'FullOverride' | 'ObserveOnly' {
-  return (
-    value === 'SplitDnsPreferred' ||
-    value === 'FullOverride' ||
-    value === 'ObserveOnly'
-  )
 }
 
 export function ConfigSection({
@@ -27,11 +24,14 @@ export function ConfigSection({
   isSavingPassword,
   isClearingPassword,
   isUpdatingDns,
+  dnsNeedsReconnect,
+  isReconnecting,
   onDnsPolicyChange,
+  onDnsDomainsChange,
+  onReconnect,
   onGeneratedPasswordSave,
   onGeneratedPasswordClear,
 }: ConfigSectionProps) {
-  const currentPolicy = profile.profile.dns_policy
   const isPasswordConfigured = profile.profile.credential_strategy === 'PinTotp'
   const showsPassword = profile.profile.credential_mode === 'UserPass'
 
@@ -45,33 +45,15 @@ export function ConfigSection({
       </div>
 
       <div className="config-fields">
-        <div className="config-field">
-          <label>
-            DNS policy
-            <div className="select-wrapper">
-              <select
-                value={currentPolicy}
-                disabled={isUpdatingDns}
-                onChange={(event) => {
-                  if (isDnsPolicy(event.target.value)) {
-                    void onDnsPolicyChange(event.target.value)
-                  }
-                }}
-              >
-                <option value="SplitDnsPreferred">Split DNS preferred</option>
-                <option value="FullOverride">Full override</option>
-                <option value="ObserveOnly">Observe only</option>
-              </select>
-            </div>
-          </label>
-          <p className="config-hint">
-            {currentPolicy === 'FullOverride'
-              ? 'Replaces system DNS while connected, restores on disconnect.'
-              : currentPolicy === 'SplitDnsPreferred'
-                ? 'Routes VPN domain queries through the tunnel DNS, leaves the rest untouched.'
-                : 'Watches DNS changes without modifying them.'}
-          </p>
-        </div>
+        <DnsSettings
+          profile={profile}
+          isUpdating={isUpdatingDns}
+          needsReconnect={dnsNeedsReconnect}
+          isReconnecting={isReconnecting}
+          onPolicyChange={onDnsPolicyChange}
+          onDomainsChange={onDnsDomainsChange}
+          onReconnect={onReconnect}
+        />
 
         {showsPassword && (
           <PasswordSubForm

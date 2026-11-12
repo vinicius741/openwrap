@@ -5,10 +5,11 @@ import {
   getProfile,
   listProfiles,
   setLastSelectedProfile,
+  updateProfileDnsMatchDomains,
   updateProfileDnsPolicy,
 } from '../../features/profiles/api'
 import { normalizeCommandError } from '../../lib/tauri'
-import type { ProfileDetail, ProfileSummary, UserFacingError } from '../../types/ipc'
+import type { DnsPolicy, ProfileDetail, ProfileSummary, UserFacingError } from '../../types/ipc'
 
 export async function selectProfile(profileId: string): Promise<ProfileDetail> {
   const selectedProfile = await getProfile(profileId)
@@ -46,9 +47,16 @@ export function deleteProfileError(error: unknown): { error: UserFacingError } {
 
 export async function updateDnsPolicy(
   profileId: string,
-  dnsPolicy: 'SplitDnsPreferred' | 'FullOverride' | 'ObserveOnly',
+  dnsPolicy: DnsPolicy,
 ): Promise<ProfileDetail> {
   return updateProfileDnsPolicy(profileId, dnsPolicy)
+}
+
+export async function updateDnsMatchDomains(
+  profileId: string,
+  domains: string[],
+): Promise<ProfileDetail> {
+  return updateProfileDnsMatchDomains(profileId, domains)
 }
 
 export function updateDnsPolicyError(error: unknown): { error: UserFacingError } {

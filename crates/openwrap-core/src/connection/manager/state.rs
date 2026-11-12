@@ -43,7 +43,6 @@ pub struct ManagerState {
     pub active_session: Option<ActiveSession>,
     pub reconnect_plan: Option<ConnectionPlan>,
     pub next_generation: u64,
-    pub auto_promoted_policy_persisted: bool,
 }
 
 impl Default for ManagerState {
@@ -55,7 +54,6 @@ impl Default for ManagerState {
             active_session: None,
             reconnect_plan: None,
             next_generation: 0,
-            auto_promoted_policy_persisted: false,
         }
     }
 }
@@ -366,7 +364,6 @@ impl ConnectionManager {
         state.pending_credentials = None;
         state.reconnect_plan = None;
         state.active_session = None;
-        state.auto_promoted_policy_persisted = false;
         state.snapshot = ConnectionSnapshot::default();
         let _ = self
             .events

@@ -221,7 +221,7 @@ OpenWrap stores application data under the base directory `~/Library/Application
 Session logs are organized by date and include:
 - **metadata.json**: Profile name, start/end times, outcome (success/failed/cancelled)
 - **openvpn.log**: All stdout/stderr from OpenVPN process
-- **dns.log**: DNS configuration changes, auto-promotion events
+- **dns.log**: DNS configuration changes and resolver warnings
 - **core.log**: State machine transitions, PID info, exit codes
 
 Enable verbose logging in Settings for immediate flush (useful for debugging crashes).

@@ -21,6 +21,12 @@ export interface ProfileSummary {
   last_used_at: string | null
 }
 
+/**
+ * `FullOverride` sends all DNS through the VPN, `SplitDnsPreferred` only the
+ * profile's listed domains, and `ObserveOnly` leaves system DNS untouched.
+ */
+export type DnsPolicy = 'SplitDnsPreferred' | 'FullOverride' | 'ObserveOnly'
+
 export interface Profile {
   id: string
   name: string
@@ -29,7 +35,9 @@ export interface Profile {
   managed_ovpn_path: string
   original_import_path: string
   dns_intent: string[]
-  dns_policy: 'SplitDnsPreferred' | 'FullOverride' | 'ObserveOnly'
+  dns_policy: DnsPolicy
+  /** Domains resolved through the VPN when `dns_policy` is `SplitDnsPreferred`. */
+  dns_match_domains: string[]
   credential_mode: 'None' | 'UserPass'
   credential_strategy: 'Prompt' | 'PinTotp'
   remote_summary: string
@@ -80,7 +88,6 @@ export interface DnsObservation {
   config_requested: string[]
   runtime_pushed: string[]
   effective_mode: 'ObserveOnly' | 'ScopedResolvers' | 'GlobalOverride'
-  auto_promoted_policy: 'SplitDnsPreferred' | 'FullOverride' | 'ObserveOnly' | null
   restore_status: 'ok' | 'pending_reconcile' | 'restore_failed' | null
   warnings: string[]
 }

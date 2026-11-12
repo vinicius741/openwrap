@@ -94,6 +94,7 @@ pub fn write_launch_config(
             runtime_dir,
             &detail.profile.id,
             &detail.profile.dns_policy,
+            &detail.profile.dns_match_domains,
         )?
     } else {
         Vec::new()

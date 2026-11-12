@@ -1,5 +1,17 @@
 import type { ConnectionSnapshot, DnsObservation } from '../../../types/ipc'
 
+/** True while a session exists whose DNS setup was fixed when it started. */
+export function hasActiveSession(connection: ConnectionSnapshot | null | undefined): boolean {
+  if (!connection) {
+    return false
+  }
+  return (
+    connection.state !== 'idle' &&
+    connection.state !== 'error' &&
+    connection.state !== 'disconnecting'
+  )
+}
+
 export function isConnected(connection: ConnectionSnapshot | null | undefined): boolean {
   if (!connection) {
     return false
@@ -25,12 +37,15 @@ export function getDnsStatusMessage(observation: DnsObservation | undefined): st
     return 'DNS restore is pending reconciliation; OpenWrap will retry on the next launch or reconnect.'
   }
 
-  if (observation.auto_promoted_policy === 'FullOverride') {
-    return 'OpenWrap auto-promoted this connection to full DNS override because the VPN did not provide split-DNS domains.'
-  }
-
   if (observation.effective_mode === 'ScopedResolvers') {
-    return 'Split DNS succeeded. OpenWrap is using VPN DNS only for configured domains.'
+    // The backend reports this case as a warning that starts with this text.
+    const missingDomains = observation.warnings.find((warning) =>
+      warning.startsWith('No VPN domains are listed'),
+    )
+    return (
+      missingDomains ??
+      'OpenWrap uses VPN DNS only for the domains listed for this profile. All other DNS stays on your normal network.'
+    )
   }
 
   if (observation.effective_mode === 'GlobalOverride') {

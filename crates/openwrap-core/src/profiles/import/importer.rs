@@ -142,7 +142,10 @@ impl ProfileImporter {
             created_at: now,
             updated_at: now,
             dns_intent: parsed.dns_directives.clone(),
-            dns_policy: DnsPolicy::SplitDnsPreferred,
+            // New profiles send all DNS through the VPN so they work without
+            // setup; listing domains is an explicit opt-in per profile.
+            dns_policy: DnsPolicy::FullOverride,
+            dns_match_domains: Vec::new(),
             credential_mode: if parsed.requires_auth_user_pass {
                 CredentialMode::UserPass
             } else {
