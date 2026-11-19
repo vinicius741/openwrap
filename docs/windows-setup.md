@@ -6,9 +6,13 @@ directly. There is no setuid helper and no paid code signing: the app runs
 prompt on launch) and OpenVPN inherits that elevation to create the tunnel
 adapter and change routes and DNS.
 
-> Status: experimental. The Windows code compiles and is covered by CI, but
-> real connect/disconnect behavior still needs to be validated on Windows.
-> See "Known limitations" below.
+> Status: experimental. Core Windows flows (OpenVPN 2.7 DCO connect/disconnect
+> via `--service`, routes and DNS apply/restore, `block-outside-dns` WFP
+> filters, `ObserveOnly` pull filters, Credential Manager username storage,
+> manifest elevation, and NSIS silent install/uninstall) are validated in
+> `windows-latest` CI. Interactive desktop GUI flows (UAC prompt UX, tray
+> interactions, WebView2 rendering, and interactive Explorer reveal) still need
+> manual testing on a Windows desktop. See "Known limitations" below.
 
 ## Prerequisites
 
@@ -16,8 +20,8 @@ adapter and change routes and DNS.
   the Evergreen runtime if it is missing.
 - **OpenVPN Community 2.6+** from <https://openvpn.net/community-downloads/>
   (or `winget install --id OpenVPNTechnologies.OpenVPN --exact`). The default
-  install includes the Wintun / DCO drivers OpenWrap relies on. OpenWrap finds
-  `openvpn.exe` via `HKLM\SOFTWARE\OpenVPN` or
+  install includes the DCO / TAP network drivers OpenWrap relies on. OpenWrap
+  finds `openvpn.exe` via `HKLM\SOFTWARE\OpenVPN` or
   `C:\Program Files\OpenVPN\bin\openvpn.exe`; a custom path can be set in
   Settings.
 
@@ -44,6 +48,7 @@ binary requests elevation, so `cargo tauri dev` from a normal terminal fails wit
 npm install
 npm test
 cargo test -p openwrap-core -p openwrap-app
+cargo test -p openwrap-core --test windows_openvpn_e2e -- --ignored --nocapture  # real OpenVPN E2E
 npm run tauri:dev                       # dev app
 npx @tauri-apps/cli@2 build --bundles nsis   # installer in target\release\bundle\nsis
 ```
@@ -57,10 +62,10 @@ skips building the Unix-only helper and builds an NSIS installer.
 |---|---|
 | VPN backend | `DirectOpenVpnBackend` spawns `openvpn.exe` with no console window. Connect fails with a clear message if the app is not elevated. |
 | Disconnect | OpenVPN is started with `--service <event> 0`. Disconnect signals that named event so OpenVPN shuts down cleanly (routes and DNS restored), then force-terminates it after 10 s if it is still running. |
-| DNS | OpenVPN applies DNS itself. Split DNS (default): no extra directives. Full override: adds `block-outside-dns`. Observe only: `pull-filter ignore` for pushed DNS options. |
+| DNS | OpenVPN applies DNS itself. Full override (default): adds `block-outside-dns` (WFP). Split DNS (VPN adapter): no extra directives. Observe only: `pull-filter ignore` for pushed DNS options. |
 | Remember username | Windows Credential Manager, generic credential `app.openwrap.credentials:profile-<id>` (username only; passwords are never stored). |
 | Data | `%LOCALAPPDATA%\OpenWrap` (profiles, logs, runtime files). |
-| Reveal in file manager | `explorer.exe /select,<path>`. |
+| Reveal in file manager | `explorer.exe /select,"<path>"` (using raw Windows command-line quoting so paths with spaces work). |
 | Profile policy | `windows-driver` is allowed and `block-outside-dns` requires approval on Windows; both stay blocked on macOS. |
 
 ## Known limitations
