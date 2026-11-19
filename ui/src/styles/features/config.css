@@ -53,3 +53,167 @@
 .config-form-row label {
   font-weight: 500;
 }
+
+.config-label {
+  font-weight: 500;
+}
+
+/* ── Segmented mode switch ── */
+.segmented {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--input-bg);
+}
+
+.segmented-option {
+  padding: 8px 12px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.segmented-option:not(:disabled):hover {
+  color: var(--text);
+}
+
+.segmented-option[aria-checked='true'] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.segmented-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.segmented-option:focus-visible,
+.dns-option:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ── Listed DNS domains ── */
+.dns-domains {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dns-domain-form {
+  display: flex;
+  gap: 8px;
+}
+
+.dns-domain-form input {
+  flex: 1;
+  min-width: 0;
+}
+
+.dns-domain-error {
+  color: var(--error-text);
+}
+
+.dns-domains code {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.dns-options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dns-option {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.dns-option:hover {
+  background: var(--surface-raised-hover);
+  border-color: var(--line-strong);
+}
+
+.dns-option[aria-checked='true'] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.dns-option-mark {
+  align-self: center;
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+}
+
+.dns-option[aria-checked='true'] .dns-option-mark {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.dns-option-hint {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.dns-domain-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+
+.dns-domain-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 6px 4px 12px;
+}
+
+.dns-domain-list li + li {
+  border-top: 1px solid var(--line);
+}
+
+.dns-reconnect-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--badge-warn-border);
+  border-radius: var(--radius-md);
+  background: var(--warn-soft);
+}
+
+.dns-reconnect-notice p {
+  margin: 0;
+}

@@ -90,7 +90,6 @@ pub struct DnsObservation {
     pub config_requested: Vec<String>,
     pub runtime_pushed: Vec<String>,
     pub effective_mode: DnsEffectiveMode,
-    pub auto_promoted_policy: Option<DnsPolicy>,
     pub restore_status: Option<DnsRestoreStatus>,
     pub warnings: Vec<String>,
 }
@@ -101,7 +100,6 @@ impl Default for DnsObservation {
             config_requested: Vec::new(),
             runtime_pushed: Vec::new(),
             effective_mode: DnsEffectiveMode::ObserveOnly,
-            auto_promoted_policy: None,
             restore_status: None,
             warnings: Vec::new(),
         }
@@ -143,6 +141,65 @@ pub fn extract_dns_directives(line: &str) -> Vec<String> {
         }
     }
     directives
+}
+
+/// Upper bound on the per-profile domain list, so a runaway list cannot fill
+/// `/etc/resolver` with thousands of files.
+pub const MAX_MATCH_DOMAINS: usize = 500;
+
+/// Normalizes one user-listed VPN domain (for example `bmwgroup.net`).
+///
+/// The result is used as a file name under `/etc/resolver` and interpolated
+/// into a root-run script, so this accepts strict DNS hostnames only:
+/// lowercase letters, digits and hyphens in dot-separated labels.
+pub fn normalize_match_domain(value: &str) -> Option<String> {
+    let domain = value.trim().trim_matches('.').to_ascii_lowercase();
+    if domain.is_empty() || domain.len() > 253 {
+        return None;
+    }
+
+    let labels = domain.split('.').collect::<Vec<_>>();
+    let labels_valid = labels.iter().all(|label| {
+        !label.is_empty()
+            && label.len() <= 63
+            && !label.starts_with('-')
+            && !label.ends_with('-')
+            && label
+                .chars()
+                .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '-')
+    });
+    // A numeric last label means an IP address, which never needs a resolver.
+    let looks_like_ip = labels
+        .last()
+        .is_some_and(|label| label.chars().all(|ch| ch.is_ascii_digit()));
+
+    (labels_valid && !looks_like_ip).then_some(domain)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MatchDomainError {
+    /// The entry is not a plain DNS hostname.
+    Invalid(String),
+    /// The list is longer than [`MAX_MATCH_DOMAINS`].
+    TooMany,
+}
+
+/// Validates a whole per-profile domain list, dropping duplicates while
+/// keeping the caller's order.
+pub fn normalize_match_domains(values: &[String]) -> Result<Vec<String>, MatchDomainError> {
+    let mut domains = Vec::new();
+    for value in values {
+        let Some(domain) = normalize_match_domain(value) else {
+            return Err(MatchDomainError::Invalid(value.clone()));
+        };
+        if !domains.contains(&domain) {
+            domains.push(domain);
+        }
+    }
+    if domains.len() > MAX_MATCH_DOMAINS {
+        return Err(MatchDomainError::TooMany);
+    }
+    Ok(domains)
 }
 
 fn normalize_domain(value: &str) -> Option<String> {
@@ -316,7 +373,6 @@ mod tests {
         assert!(obs.config_requested.is_empty());
         assert!(obs.runtime_pushed.is_empty());
         assert_eq!(obs.effective_mode, DnsEffectiveMode::ObserveOnly);
-        assert_eq!(obs.auto_promoted_policy, None);
         assert_eq!(obs.restore_status, None);
         assert!(obs.warnings.is_empty());
     }
@@ -387,5 +443,75 @@ mod tests {
     fn extract_dns_directives_empty_line() {
         let directives = extract_dns_directives("no dhcp-options here");
         assert!(directives.is_empty());
+    }
+
+    #[test]
+    fn normalize_match_domain_accepts_hostnames() {
+        assert_eq!(
+            normalize_match_domain(" BMWGroup.NET. "),
+            Some("bmwgroup.net".to_string())
+        );
+        assert_eq!(
+            normalize_match_domain("atc.bmwgroup.net"),
+            Some("atc.bmwgroup.net".to_string())
+        );
+        assert_eq!(normalize_match_domain("corp"), Some("corp".to_string()));
+        assert_eq!(
+            normalize_match_domain("xn--mnchen-3ya.de"),
+            Some("xn--mnchen-3ya.de".to_string())
+        );
+    }
+
+    #[test]
+    fn normalize_match_domain_rejects_unsafe_or_non_hostname_input() {
+        for value in [
+            "",
+            ".",
+            "https://atc.bmwgroup.net/jira",
+            "bmwgroup.net/jira",
+            "bmw group.net",
+            "bmwgroup..net",
+            "-bmwgroup.net",
+            "bmwgroup-.net",
+            "bmw_group.net",
+            "*.bmwgroup.net",
+            "bmwgroup.net; rm -rf /",
+            "bmwgroup.net'",
+            "$(id).net",
+            "../etc/passwd",
+            "10.0.1.50",
+            "host.123",
+        ] {
+            assert_eq!(normalize_match_domain(value), None, "accepted {value:?}");
+        }
+        assert_eq!(normalize_match_domain(&"a".repeat(64)), None);
+        assert_eq!(
+            normalize_match_domain(&format!("{}.net", "a.".repeat(130))),
+            None
+        );
+    }
+
+    #[test]
+    fn normalize_match_domains_dedupes_and_reports_bad_entries() {
+        let domains = normalize_match_domains(&[
+            "bmwgroup.net".to_string(),
+            "BMWGROUP.net".to_string(),
+            "bmw.com".to_string(),
+        ])
+        .unwrap();
+        assert_eq!(domains, vec!["bmwgroup.net", "bmw.com"]);
+
+        assert_eq!(
+            normalize_match_domains(&["bmw.com".to_string(), "bad domain".to_string()]),
+            Err(MatchDomainError::Invalid("bad domain".to_string()))
+        );
+
+        let too_many = (0..=MAX_MATCH_DOMAINS)
+            .map(|index| format!("host{index}.example"))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            normalize_match_domains(&too_many),
+            Err(MatchDomainError::TooMany)
+        );
     }
 }

@@ -27,6 +27,7 @@ pub fn append_launch_config(
     runtime_dir: &Path,
     profile_id: &ProfileId,
     dns_policy: &DnsPolicy,
+    match_domains: &[String],
 ) -> Result<Vec<PathBuf>, AppError> {
     if matches!(dns_policy, DnsPolicy::ObserveOnly) {
         return Ok(Vec::new());
@@ -50,6 +51,7 @@ pub fn append_launch_config(
         &global_state,
         &route_state,
         profile_id,
+        match_domains,
     );
 
     fs::write(&up_script, &up_script_body)?;
@@ -106,6 +108,10 @@ mod tests {
             &runtime_dir,
             &profile_id,
             &DnsPolicy::SplitDnsPreferred,
+            &[
+                "bmwgroup.net".to_string(),
+                "bmw.com'; touch /tmp/pwned; '".to_string(),
+            ],
         )
         .unwrap();
 
@@ -125,15 +131,17 @@ mod tests {
         assert!(up_script.contains("collect_search_domains()"));
         assert!(up_script.contains("OPENWRAP_DNS_DEBUG: $*\" >&2"));
         assert!(up_script.contains("OPENWRAP_DNS_ERROR: $*\" >&2"));
-        assert!(up_script.contains("active network devices:"));
-        assert!(up_script.contains("selected active service"));
         assert!(up_script.contains("observed VPN DNS servers:"));
         assert!(up_script.contains("printf 'search %s\\n' \"$domain\""));
-        assert!(up_script.contains("apply_global_override()"));
-        assert!(up_script.contains("AUTO_PROMOTED_FULL_OVERRIDE"));
-        assert!(up_script.contains("if [ \"$current_dns\" = \"$desired_dns\" ]; then"));
-        assert!(up_script.contains("\"$active_device_file\""));
-        assert!(!up_script.contains("active_devices_file"));
+        // Listed domains are rendered in; invalid entries never reach the script.
+        assert!(up_script.contains("PROFILE_MATCH_DOMAINS='bmwgroup.net'\n"));
+        assert!(!up_script.contains("pwned"));
+        assert!(!up_script.contains("{{"));
+        // Split DNS never falls back to overriding all system DNS.
+        assert!(up_script.contains("NO_SCOPED_DOMAINS"));
+        assert!(!up_script.contains("AUTO_PROMOTED_FULL_OVERRIDE"));
+        assert!(!up_script.contains("apply_global_override"));
+        assert!(!up_script.contains("networksetup"));
     }
 
     #[test]
@@ -152,6 +160,7 @@ mod tests {
             &runtime_dir,
             &ProfileId::new(),
             &DnsPolicy::FullOverride,
+            &[],
         )
         .unwrap();
 
@@ -189,6 +198,7 @@ mod tests {
             &runtime_dir,
             &ProfileId::new(),
             &DnsPolicy::ObserveOnly,
+            &[],
         )
         .unwrap();
 

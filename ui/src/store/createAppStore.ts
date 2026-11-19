@@ -11,6 +11,7 @@ import {
   refreshProfiles,
   deleteProfileAction,
   updateDnsPolicy,
+  updateDnsMatchDomains,
   clearGeneratedPassword,
   configureGeneratedPassword,
 } from './actions/profileActions'
@@ -21,16 +22,25 @@ import {
   reduceAppendLogs,
 } from './reducers/connectionEvents'
 import { importProfile } from '../features/profiles/api'
-import { getRuntimeDependencies, installRuntimeDependencies, updateSettings } from '../features/settings/api'
+import {
+  getRuntimeDependencies,
+  installRuntimeDependencies,
+  repairRuntimeDependencies,
+  updateSettings,
+} from '../features/settings/api'
 import { checkForUpdate, getAppInfo, installHelper, installUpdate } from '../features/updates/api'
+import { hasActiveSession } from '../features/connection/model/status'
 import { normalizeCommandError } from '../lib/tauri'
 import type { ImportWarningState } from '../types/domain'
 import type {
   ConnectionSnapshot,
+  ConnectionState,
   CredentialPrompt,
+  DnsPolicy,
   LogEntry,
   ProfileDetail,
   ProfileSummary,
+  RuntimeDependencies,
   Settings,
   UpdateProgress,
   UserFacingError,
@@ -44,6 +54,11 @@ type AppStore = UpdateSlice & SettingsSlice & {
   logs: UiLogEntry[]
   nextLogId: number
   pendingCredentialPrompt: CredentialPrompt | null
+  /**
+   * Profile whose DNS settings changed while it had an active session. DNS is
+   * set up when a session starts, so the change waits for the next connect.
+   */
+  dnsChangePendingProfileId: string | null
   settings: Settings | null
   importWarning: ImportWarningState | null
   error: UserFacingError | null
@@ -52,7 +67,8 @@ type AppStore = UpdateSlice & SettingsSlice & {
   refreshSelectedProfile: () => Promise<void>
   refreshProfiles: () => Promise<void>
   deleteProfile: (profileId: string) => Promise<void>
-  updateSelectedProfileDnsPolicy: (dnsPolicy: 'SplitDnsPreferred' | 'FullOverride' | 'ObserveOnly') => Promise<void>
+  updateSelectedProfileDnsPolicy: (dnsPolicy: DnsPolicy) => Promise<void>
+  updateSelectedProfileDnsMatchDomains: (domains: string[]) => Promise<void>
   configureSelectedProfileGeneratedPassword: (input: {
     username: string
     pin: string
@@ -63,6 +79,8 @@ type AppStore = UpdateSlice & SettingsSlice & {
   approveImportWarnings: () => Promise<void>
   connectSelected: () => Promise<void>
   disconnect: () => Promise<void>
+  /** Disconnects, waits for the session to end, then connects the selected profile. */
+  reconnectSelected: () => Promise<void>
   submitCredentials: (input: {
     username: string
     password: string
@@ -78,6 +96,8 @@ type AppStore = UpdateSlice & SettingsSlice & {
   saveSettings: (verboseLogging: boolean) => Promise<void>
   checkRuntimeDependencies: () => Promise<void>
   installRuntimeDependencies: () => Promise<void>
+  /** Updates or reinstalls Homebrew's OpenVPN when it is broken or out of date. */
+  repairRuntimeDependencies: () => Promise<void>
   loadAppInfo: () => Promise<void>
   installHelper: () => Promise<void>
   /** `manual` surfaces errors and "up to date"; the startup check stays silent. */
@@ -87,8 +107,54 @@ type AppStore = UpdateSlice & SettingsSlice & {
   dismissUpdateBanner: () => void
 }
 
+/** How long a reconnect waits for the old session to finish disconnecting. */
+const RECONNECT_DISCONNECT_TIMEOUT_MS = 30_000
+
 export const createAppStore = () => {
-  return create<AppStore>((set, get) => {
+  return create<AppStore>((set, get, api) => {
+    const currentState = (): ConnectionState => get().connection?.state ?? 'idle'
+
+    /** Resolves with the first connection state that satisfies `done`, or null on timeout. */
+    const waitForConnectionState = (
+      done: (state: ConnectionState) => boolean,
+      timeoutMs: number,
+    ): Promise<ConnectionState | null> =>
+      new Promise((resolve) => {
+        if (done(currentState())) {
+          resolve(currentState())
+          return
+        }
+        const timer = window.setTimeout(() => {
+          unsubscribe()
+          resolve(null)
+        }, timeoutMs)
+        const unsubscribe = api.subscribe(() => {
+          if (done(currentState())) {
+            window.clearTimeout(timer)
+            unsubscribe()
+            resolve(currentState())
+          }
+        })
+      })
+
+    const runtimeIsBusy = () => {
+      const status = get().runtimeStatus
+      return status === 'installing' || status === 'repairing' || status === 'checking'
+    }
+
+    const runtimeStatusFor = (dependencies: RuntimeDependencies) => {
+      if (!dependencies.openvpn_path) return 'missing' as const
+      return dependencies.openvpn_problem ? ('broken' as const) : ('ready' as const)
+    }
+
+    /** Flags a DNS change that the profile's running session will not pick up. */
+    const markDnsChangePending = (profileId: string) => {
+      const { connection } = get()
+      if (connection?.profile_id === profileId && hasActiveSession(connection)) {
+        set({ dnsChangePendingProfileId: profileId })
+      }
+    }
+
     const mergeProfileDetail = (updatedProfile: ProfileDetail) => {
       set((state) => ({
         profiles: state.profiles.map((profile) =>
@@ -115,6 +181,7 @@ export const createAppStore = () => {
       ...settingsInitialState,
       ...importInitialState,
       ...updateInitialState,
+      dnsChangePendingProfileId: null,
       error: null,
       loadInitial: async () => {
         try {
@@ -178,6 +245,20 @@ export const createAppStore = () => {
         try {
           const updatedProfile = await updateDnsPolicy(selectedProfile.profile.id, dnsPolicy)
           mergeProfileDetail(updatedProfile)
+          markDnsChangePending(updatedProfile.profile.id)
+          set({ error: null })
+        } catch (error) {
+          set({ error: normalizeCommandError(error) })
+        }
+      },
+
+      updateSelectedProfileDnsMatchDomains: async (domains) => {
+        const selectedProfile = get().selectedProfile
+        if (!selectedProfile) return
+        try {
+          const updatedProfile = await updateDnsMatchDomains(selectedProfile.profile.id, domains)
+          mergeProfileDetail(updatedProfile)
+          markDnsChangePending(updatedProfile.profile.id)
           set({ error: null })
         } catch (error) {
           set({ error: normalizeCommandError(error) })
@@ -262,7 +343,36 @@ export const createAppStore = () => {
         try {
           get().clearLogs()
           const connection = await connectSelected(profileId)
-          set({ connection, error: null })
+          set({ connection, dnsChangePendingProfileId: null, error: null })
+        } catch (error) {
+          set({ error: normalizeCommandError(error) })
+        }
+      },
+
+      reconnectSelected: async () => {
+        const profileId = get().selectedProfileId
+        if (!profileId) return
+        try {
+          set({ connection: await disconnect(), error: null })
+          const settled = await waitForConnectionState(
+            (state) => state === 'idle' || state === 'error',
+            RECONNECT_DISCONNECT_TIMEOUT_MS,
+          )
+          if (settled === null) {
+            set({
+              error: {
+                code: 'reconnect_timeout',
+                title: 'Still disconnecting',
+                message: 'OpenWrap is still closing the previous connection.',
+                suggested_fix: 'Press Connect once the status shows Idle.',
+                details_safe: null,
+              },
+            })
+            return
+          }
+          // A disconnect that ended in an error is already shown; do not connect over it.
+          if (settled === 'error') return
+          await get().connectSelected()
         } catch (error) {
           set({ error: normalizeCommandError(error) })
         }
@@ -318,6 +428,10 @@ export const createAppStore = () => {
         const { logs, nextLogId } = get()
         const result = reduceConnection(logs, nextLogId, snapshot)
         set({ ...result, error: null })
+        // Once the session is gone, the next connect uses the current DNS settings.
+        if (!hasActiveSession(snapshot)) {
+          set({ dnsChangePendingProfileId: null })
+        }
       },
 
       setDnsObservation: (dnsObservation) => {
@@ -357,24 +471,24 @@ export const createAppStore = () => {
       },
 
       checkRuntimeDependencies: async () => {
-        if (get().runtimeStatus === 'installing' || get().runtimeStatus === 'checking') return
+        if (runtimeIsBusy()) return
         set({ runtimeStatus: 'checking', runtimeError: null })
         try {
           const runtimeDependencies = await getRuntimeDependencies()
-          set({ runtimeDependencies, runtimeStatus: runtimeDependencies.openvpn_path ? 'ready' : 'missing' })
+          set({ runtimeDependencies, runtimeStatus: runtimeStatusFor(runtimeDependencies) })
         } catch (error) {
           set({ runtimeStatus: 'error', runtimeError: normalizeCommandError(error) })
         }
       },
 
       installRuntimeDependencies: async () => {
-        if (get().runtimeStatus === 'installing' || get().runtimeStatus === 'checking') return
+        if (runtimeIsBusy()) return
         set({ runtimeStatus: 'installing', runtimeError: null })
         try {
           const runtimeDependencies = await installRuntimeDependencies()
           set((state) => ({
             runtimeDependencies,
-            runtimeStatus: 'ready',
+            runtimeStatus: runtimeStatusFor(runtimeDependencies),
             error: state.error?.code === 'openvpn_not_found' ? null : state.error,
             connection: state.connection?.last_error?.code === 'openvpn_not_found'
               ? { ...state.connection, last_error: null }
@@ -382,6 +496,23 @@ export const createAppStore = () => {
           }))
         } catch (error) {
           set({ runtimeStatus: 'error', runtimeError: normalizeCommandError(error) })
+        }
+      },
+
+      repairRuntimeDependencies: async () => {
+        if (runtimeIsBusy()) return
+        set({ runtimeStatus: 'repairing', runtimeError: null })
+        try {
+          const runtimeDependencies = await repairRuntimeDependencies()
+          set({ runtimeDependencies, runtimeStatus: runtimeStatusFor(runtimeDependencies) })
+        } catch (error) {
+          set({ runtimeStatus: 'error', runtimeError: normalizeCommandError(error) })
+          try {
+            // Show what is installed now, whatever the repair managed to do.
+            set({ runtimeDependencies: await getRuntimeDependencies() })
+          } catch {
+            // Keep the previous detection result.
+          }
         }
       },
 

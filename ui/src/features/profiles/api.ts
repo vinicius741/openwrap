@@ -1,5 +1,6 @@
 import { invokeCommand } from '../../lib/tauri'
 import type {
+  DnsPolicy,
   ImportProfileResponse,
   ProfileDetail,
   ProfileSummary,
@@ -41,12 +42,21 @@ export async function setLastSelectedProfile(profileId: string | null) {
 
 export async function updateProfileDnsPolicy(
   profileId: string,
-  dnsPolicy: 'SplitDnsPreferred' | 'FullOverride' | 'ObserveOnly',
+  dnsPolicy: DnsPolicy,
 ) {
   return invokeCommand<ProfileDetail>('update_profile_dns_policy', {
     request: {
       profileId,
       dnsPolicy,
+    },
+  })
+}
+
+export async function updateProfileDnsMatchDomains(profileId: string, domains: string[]) {
+  return invokeCommand<ProfileDetail>('update_profile_dns_match_domains', {
+    request: {
+      profileId,
+      domains,
     },
   })
 }

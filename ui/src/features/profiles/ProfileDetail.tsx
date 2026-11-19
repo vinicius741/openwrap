@@ -8,10 +8,16 @@ import { ConfigSection } from './components/ConfigSection'
 import { ProfileInfo } from './components/ProfileInfo'
 import { useDeleteProfile } from './hooks/useDeleteProfile'
 import { useAppStore } from '../../store/appStore'
+import type { DnsPolicy } from '../../types/ipc'
 
 export function ProfileDetail() {
   const profile = useAppStore((state) => state.selectedProfile)
   const updateSelectedProfileDnsPolicy = useAppStore((state) => state.updateSelectedProfileDnsPolicy)
+  const updateSelectedProfileDnsMatchDomains = useAppStore(
+    (state) => state.updateSelectedProfileDnsMatchDomains,
+  )
+  const reconnectSelected = useAppStore((state) => state.reconnectSelected)
+  const dnsChangePendingProfileId = useAppStore((state) => state.dnsChangePendingProfileId)
   const configureSelectedProfileGeneratedPassword = useAppStore(
     (state) => state.configureSelectedProfileGeneratedPassword,
   )
@@ -20,6 +26,7 @@ export function ProfileDetail() {
   )
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [isUpdatingPolicy, setIsUpdatingPolicy] = useState(false)
+  const [isReconnecting, setIsReconnecting] = useState(false)
   const [isSavingGeneratedPassword, setIsSavingGeneratedPassword] = useState(false)
   const [isClearingGeneratedPassword, setIsClearingGeneratedPassword] = useState(false)
   const { isDeleting, error: deleteError, deleteProfile, resetError } = useDeleteProfile()
@@ -40,7 +47,7 @@ export function ProfileDetail() {
   }, [profile, deleteProfile, closeModal])
 
   const handleDnsPolicyChange = useCallback(
-    async (dnsPolicy: 'SplitDnsPreferred' | 'FullOverride' | 'ObserveOnly') => {
+    async (dnsPolicy: DnsPolicy) => {
       setIsUpdatingPolicy(true)
       try {
         await updateSelectedProfileDnsPolicy(dnsPolicy)
@@ -50,6 +57,27 @@ export function ProfileDetail() {
     },
     [updateSelectedProfileDnsPolicy],
   )
+
+  const handleDnsDomainsChange = useCallback(
+    async (domains: string[]) => {
+      setIsUpdatingPolicy(true)
+      try {
+        await updateSelectedProfileDnsMatchDomains(domains)
+      } finally {
+        setIsUpdatingPolicy(false)
+      }
+    },
+    [updateSelectedProfileDnsMatchDomains],
+  )
+
+  const handleReconnect = useCallback(async () => {
+    setIsReconnecting(true)
+    try {
+      await reconnectSelected()
+    } finally {
+      setIsReconnecting(false)
+    }
+  }, [reconnectSelected])
 
   const handleGeneratedPasswordSave = useCallback(
     async (input: { username: string; pin: string; totpSecret: string }) => {
@@ -100,7 +128,11 @@ export function ProfileDetail() {
         isSavingPassword={isSavingGeneratedPassword}
         isClearingPassword={isClearingGeneratedPassword}
         isUpdatingDns={isUpdatingPolicy}
+        dnsNeedsReconnect={dnsChangePendingProfileId === profile.profile.id}
+        isReconnecting={isReconnecting}
         onDnsPolicyChange={handleDnsPolicyChange}
+        onDnsDomainsChange={handleDnsDomainsChange}
+        onReconnect={handleReconnect}
         onGeneratedPasswordSave={handleGeneratedPasswordSave}
         onGeneratedPasswordClear={handleGeneratedPasswordClear}
       />

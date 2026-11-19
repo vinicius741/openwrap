@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::dns::DnsPolicy;
+use crate::dns::{normalize_match_domain, DnsPolicy};
 use crate::profiles::ProfileId;
 
 use super::paths::{shell_single_quote, shell_single_quote_str};
@@ -10,9 +10,21 @@ pub fn render_scoped_up_script(
     global_state_file: &Path,
     route_state_file: &Path,
     profile_id: &ProfileId,
+    match_domains: &[String],
 ) -> String {
+    // The script runs as root, so only strictly validated hostnames may be
+    // rendered into it, whatever the caller passed in.
+    let match_domains = match_domains
+        .iter()
+        .filter_map(|domain| normalize_match_domain(domain))
+        .collect::<Vec<_>>()
+        .join(" ");
     let template = include_str!("templates/scoped_up.sh");
     template
+        .replace(
+            "{{profile_match_domains}}",
+            &shell_single_quote_str(&match_domains),
+        )
         .replace(
             "{{scoped_state_file}}",
             &shell_single_quote(scoped_state_file),
@@ -83,6 +95,7 @@ pub fn render_scripts(
     global_state_file: &Path,
     route_state_file: &Path,
     profile_id: &ProfileId,
+    match_domains: &[String],
 ) -> (String, String) {
     match dns_policy {
         DnsPolicy::SplitDnsPreferred => (
@@ -91,6 +104,7 @@ pub fn render_scripts(
                 global_state_file,
                 route_state_file,
                 profile_id,
+                match_domains,
             ),
             render_scoped_down_script(
                 scoped_state_file,

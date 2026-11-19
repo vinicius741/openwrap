@@ -9,6 +9,11 @@ export function installRuntimeDependencies() {
   return invokeCommand<RuntimeDependencies>('install_runtime_dependencies')
 }
 
+/** Updates Homebrew's OpenVPN in Terminal, reinstalling it if it still cannot start. */
+export function repairRuntimeDependencies() {
+  return invokeCommand<RuntimeDependencies>('repair_runtime_dependencies')
+}
+
 export async function getSettings() {
   return invokeCommand<Settings>('get_settings')
 }

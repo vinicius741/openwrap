@@ -73,7 +73,7 @@ jobs:
       - name: Verify test binaries do not require elevation
         shell: pwsh
         run: |
-          $testBins = Get-ChildItem -Path target/debug/deps -Filter "openwrap_app_lib-*.exe"
+          $testBins = Get-ChildItem -Path target/debug -Recurse -Filter "openwrap_app_lib-*.exe"
           if (-not $testBins) { throw "No openwrap-app test binary found" }
           foreach ($bin in $testBins) {
             $text = [System.Text.Encoding]::ASCII.GetString([System.IO.File]::ReadAllBytes($bin.FullName))

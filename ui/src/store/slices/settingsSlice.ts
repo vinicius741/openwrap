@@ -3,7 +3,16 @@ import type { RuntimeDependencies, Settings, UserFacingError } from '../../types
 export type SettingsSlice = {
   settings: Settings | null
   runtimeDependencies: RuntimeDependencies | null
-  runtimeStatus: 'idle' | 'checking' | 'ready' | 'missing' | 'installing' | 'error'
+  /** `broken` means OpenVPN is installed but cannot start. */
+  runtimeStatus:
+    | 'idle'
+    | 'checking'
+    | 'ready'
+    | 'missing'
+    | 'broken'
+    | 'installing'
+    | 'repairing'
+    | 'error'
   runtimeError: UserFacingError | null
 }
 

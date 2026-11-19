@@ -147,28 +147,3 @@ pub fn persist_failed_connection_log(
 
     Some(path.to_string_lossy().into_owned())
 }
-
-pub fn push_manager_warning(
-    state: &std::sync::Arc<parking_lot::Mutex<crate::connection::manager::state::ManagerState>>,
-    events: &tokio::sync::broadcast::Sender<crate::connection::manager::state::CoreEvent>,
-    message: String,
-) {
-    let entry = LogEntry {
-        ts: chrono::Utc::now(),
-        stream: "app".into(),
-        level: crate::connection::LogLevel::Warn,
-        message,
-        sanitized: false,
-        classification: "dns_warning".into(),
-    };
-
-    {
-        let mut state = state.lock();
-        state.logs.push_back(entry.clone());
-        while state.logs.len() > crate::connection::manager::state::MAX_LOG_ENTRIES {
-            state.logs.pop_front();
-        }
-    }
-
-    let _ = events.send(crate::connection::manager::state::CoreEvent::LogLine(entry));
-}

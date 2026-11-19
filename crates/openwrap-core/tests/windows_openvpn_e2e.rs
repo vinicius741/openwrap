@@ -13,7 +13,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use openwrap_core::app_state::AppPaths;
-use openwrap_core::connection::{ConnectionManager, ConnectionState, CoreEvent, CredentialSubmission};
+use openwrap_core::connection::{
+    ConnectionManager, ConnectionState, CoreEvent, CredentialSubmission,
+};
 use openwrap_core::dns::DnsPolicy;
 use openwrap_core::openvpn::DirectOpenVpnBackend;
 use openwrap_core::profiles::{ImportProfileRequest, ImportStatus, ProfileImporter};
@@ -394,7 +396,14 @@ async fn windows_real_openvpn_end_to_end() {
     );
     assert!(openvpn_exe.is_file());
     let override_detection = detect_openvpn_binaries(Some(openvpn_exe.clone()));
-    assert_eq!(override_detection.selected_path.as_ref(), Some(&openvpn_exe));
+    assert_eq!(
+        override_detection.selected_path.as_ref(),
+        Some(&openvpn_exe)
+    );
+    let probed_version = openwrap_core::probe_openvpn(&openvpn_exe)
+        .expect("probe_openvpn should parse version from real Windows openvpn.exe");
+    println!("[probe] version={probed_version}");
+    assert!(!probed_version.is_empty());
 
     // 2. Prepare temp directories, including spaces in the OpenWrap data path!
     let temp = tempdir().unwrap();
@@ -533,6 +542,9 @@ verb 3
     // routes & DNS verification, graceful --service disconnect, reconnect
     // -----------------------------------------------------------------------
     logs.clear();
+    repository
+        .update_profile_dns_policy(&profile_id, DnsPolicy::SplitDnsPreferred)
+        .unwrap();
     let snap = manager.connect(profile_id.to_string()).await.unwrap();
     assert_eq!(snap.state, ConnectionState::AwaitingCredentials);
 
@@ -568,7 +580,10 @@ verb 3
         &mut logs,
     )
     .await;
-    println!("[connected] dns_observation={:?}", connected.dns_observation);
+    println!(
+        "[connected] dns_observation={:?}",
+        connected.dns_observation
+    );
     assert!(
         logs.iter()
             .any(|line| line.contains("Initialization Sequence Completed")),
@@ -671,7 +686,8 @@ verb 3
     .await;
     assert!(
         logs.iter()
-            .any(|line| line.contains("Blocking DNS using WFP") || line.contains("block-outside-dns")),
+            .any(|line| line.contains("Blocking DNS using WFP")
+                || line.contains("block-outside-dns")),
         "expected WFP block-outside-dns log under FullOverride; logs:\n{}",
         logs.join("\n")
     );
