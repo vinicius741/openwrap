@@ -439,8 +439,7 @@ mod tests {
             .detail
             .profile
             .managed_dir
-            .join("assets")
-            .join("tls-auth.key");
+            .join(&repository.detail.assets[0].relative_path);
 
         manager.connect(profile_id.to_string()).await.unwrap();
 
@@ -449,7 +448,7 @@ mod tests {
         assert!(request.config_path.starts_with(&request.runtime_dir));
         assert!(launch_config.contains(&format!(
             "tls-auth {} 1",
-            asset_path.display().to_string().replace(' ', "\\ ")
+            crate::connection::manager::quote_openvpn_arg(&asset_path)
         )));
 
         session.tx.send(BackendEvent::Exited(Some(0))).unwrap();
@@ -466,7 +465,12 @@ mod tests {
         let request = backend.last_request().unwrap();
         let launch_config = fs::read_to_string(&request.config_path).unwrap();
         assert!(request.openvpn_binary.as_os_str().is_empty());
-        assert!(launch_config.contains("tls-auth assets/tls-auth.key 1"));
+        assert!(launch_config.contains(&format!(
+            "tls-auth {} 1",
+            crate::connection::manager::quote_openvpn_arg(
+                &std::path::Path::new("assets").join("tls-auth.key")
+            )
+        )));
         assert!(request.runtime_dir.join("assets/tls-auth.key").exists());
         #[cfg(unix)]
         {

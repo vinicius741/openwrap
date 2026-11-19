@@ -23,5 +23,6 @@ fn clearing_last_selected_profile_removes_the_setting_row() {
     repository.set_last_selected_profile(None).unwrap();
     assert_eq!(repository.get_last_selected_profile().unwrap(), None);
 
+    drop(repository);
     fs::remove_file(db_path).unwrap();
 }
