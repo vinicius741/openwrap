@@ -19,7 +19,19 @@ pub fn prepare_runtime_dir(
 ) -> Result<PathBuf, AppError> {
     let profile_dir = paths.runtime_dir.join(profile_id.to_string());
     if profile_dir.exists() {
-        fs::remove_dir_all(&profile_dir)?;
+        // Best-effort cleanup of stale session directories. On Windows a
+        // recently terminated OpenVPN process can briefly keep its previous
+        // session directory locked as CWD, which must not block a new session.
+        if let Ok(entries) = fs::read_dir(&profile_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    let _ = fs::remove_dir_all(path);
+                } else {
+                    let _ = fs::remove_file(path);
+                }
+            }
+        }
     }
 
     let runtime_dir = profile_dir.join(session_id.to_string());

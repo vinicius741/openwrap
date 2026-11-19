@@ -19,7 +19,7 @@ use super::errors::{
     apply_reconcile_result, apply_terminal_error, dns_restore_error, persist_failed_connection_log,
     process_exit_error,
 };
-use super::runtime::cleanup_runtime_artifacts;
+use super::runtime::{cleanup_auth_file, cleanup_runtime_artifacts};
 use super::state::{
     session_is_current, ActiveSession, ConnectionPlan, ManagerState, MAX_LOG_ENTRIES,
 };
@@ -128,6 +128,10 @@ pub fn handle_log(
                 }
             }
             crate::connection::log_parser::ParsedLogSignal::None => {}
+        }
+
+        if disconnect_session.is_some() {
+            cleanup_auth_file(active_session);
         }
 
         if emit_state_changed {

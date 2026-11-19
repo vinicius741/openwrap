@@ -604,16 +604,41 @@ verb 3
         !logs.is_empty(),
         "expected live stdout logs from openvpn.exe even with --service"
     );
-    // Wait briefly for exit handler cleanup, then verify no auth.txt remains.
-    tokio::time::sleep(Duration::from_millis(500)).await;
     let profile_runtime_dir = paths.runtime_dir.join(profile_id.to_string());
-    assert!(
-        !profile_runtime_dir.exists()
+    // auth.txt must already be removed immediately on AUTH_FAILED.
+    if let Ok(entries) = fs::read_dir(&profile_runtime_dir) {
+        for entry in entries.flatten() {
+            let auth_candidate = entry.path().join("auth.txt");
+            assert!(
+                !auth_candidate.exists(),
+                "auth.txt should be removed immediately after auth_failed: {}",
+                auth_candidate.display()
+            );
+        }
+    }
+    // Wait for OpenVPN's explicit-exit-notify shutdown and exit-handler cleanup.
+    let cleanup_deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let cleaned = !profile_runtime_dir.exists()
             || fs::read_dir(&profile_runtime_dir)
                 .map(|mut d| d.next().is_none())
-                .unwrap_or(true),
-        "runtime dir / auth.txt should be cleaned up after failure"
-    );
+                .unwrap_or(true);
+        if cleaned {
+            break;
+        }
+        if Instant::now() > cleanup_deadline {
+            let remaining: Vec<PathBuf> = fs::read_dir(&profile_runtime_dir)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .map(|e| e.path())
+                .collect();
+            panic!(
+                "runtime dir should be cleaned up after OpenVPN exits; remaining: {remaining:?}"
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
 
     // -----------------------------------------------------------------------
     // Scenario 2: Valid connect (Split DNS), Remember username, live logs,
