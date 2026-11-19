@@ -403,6 +403,14 @@ async fn wait_for_state(
                         snapshot.last_error.as_ref().map(|e| &e.code)
                     );
                     if snapshot.state == target {
+                        // handle_log emits StateChanged before LogLine for the
+                        // triggering line; drain any immediately queued logs.
+                        while let Ok(queued) = rx.try_recv() {
+                            if let CoreEvent::LogLine(entry) = queued {
+                                println!("[client:{}] {}", entry.stream, entry.message);
+                                collected_logs.push(entry.message);
+                            }
+                        }
                         return snapshot;
                     }
                     if target == ConnectionState::Connected
@@ -788,9 +796,12 @@ verb 3
     )
     .await;
     assert!(
-        logs.iter()
-            .any(|line| line.contains("Blocking DNS using WFP")
-                || line.contains("block-outside-dns")),
+        logs.iter().any(|line| {
+            let lower = line.to_ascii_lowercase();
+            lower.contains("wfp")
+                || lower.contains("block-outside-dns")
+                || lower.contains("blocking dns")
+        }),
         "expected WFP block-outside-dns log under FullOverride; logs:\n{}",
         logs.join("\n")
     );

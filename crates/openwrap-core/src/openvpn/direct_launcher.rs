@@ -109,25 +109,25 @@ impl VpnBackend for DirectOpenVpnBackend {
 
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         let _ = event_tx.send(BackendEvent::Started(pid));
-        if let Some(stdout) = stdout {
+        let stdout_task = stdout.map(|stdout| {
             let tx = event_tx.clone();
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stdout).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
                     let _ = tx.send(BackendEvent::Stdout(line));
                 }
-            });
-        }
+            })
+        });
 
-        if let Some(stderr) = stderr {
+        let stderr_task = stderr.map(|stderr| {
             let tx = event_tx.clone();
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stderr).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
                     let _ = tx.send(BackendEvent::Stderr(line));
                 }
-            });
-        }
+            })
+        });
 
         {
             let tx = event_tx.clone();
@@ -137,6 +137,17 @@ impl VpnBackend for DirectOpenVpnBackend {
             tokio::spawn(async move {
                 let status = child.lock().await.wait().await.ok();
                 children.lock().remove(&session_id);
+                // Let stdout/stderr pipes drain final lines (e.g., SIGTERM or
+                // fatal error details) before signalling process exit.
+                let drain = async {
+                    if let Some(task) = stdout_task {
+                        let _ = task.await;
+                    }
+                    if let Some(task) = stderr_task {
+                        let _ = task.await;
+                    }
+                };
+                let _ = tokio::time::timeout(std::time::Duration::from_millis(500), drain).await;
                 let _ = tx.send(BackendEvent::Exited(
                     status.and_then(|status| status.code()),
                 ));
