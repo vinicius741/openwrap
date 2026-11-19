@@ -290,8 +290,20 @@ describe('src-tauri/tauri.windows.conf.json', () => {
 
   it('does not build or bundle the Unix-only setuid helper', () => {
     assert.equal(config.build?.beforeBuildCommand, 'npm run build --workspace ui')
-    // null removes the macOS helper resource map when Tauri merges the overlay.
-    assert.equal(config.bundle?.resources, null)
+    // Tauri merges the overlay as a JSON Merge Patch: a null value removes the
+    // macOS helper entry, while the Windows OpenVPN setup script is added.
+    const resources = config.bundle?.resources
+    assert.ok(resources && typeof resources === 'object')
+    assert.ok('../target/release/openwrap-helper' in resources)
+    assert.equal(resources['../target/release/openwrap-helper'], null)
+  })
+
+  it('bundles the OpenVPN setup script used by the installer hook and the app', () => {
+    assert.equal(config.bundle.resources['windows/install-openvpn.ps1'], 'install-openvpn.ps1')
+    assert.ok(existsSync(resolve(root, 'src-tauri', 'windows', 'install-openvpn.ps1')))
+    const hooks = readFileSync(resolve(root, 'src-tauri', 'windows', 'hooks.nsh'), 'utf-8')
+    assert.match(hooks, /NSIS_HOOK_POSTINSTALL/)
+    assert.match(hooks, /\$INSTDIR\\install-openvpn\.ps1/)
   })
 
   it('embeds the requireAdministrator manifest used to launch OpenVPN', () => {

@@ -83,28 +83,16 @@ jobs:
           }
           Write-Host "Confirmed: openwrap-app test binary does not embed requireAdministrator."
 
-      - name: Install OpenVPN Community for Windows E2E
+      # Uses the same script the installer and the in-app "Install OpenVPN"
+      # button ship, so its download, checksum and silent MSI install run on
+      # every push.
+      - name: Install OpenVPN Community with the bundled setup script
         shell: pwsh
         run: |
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File src-tauri/windows/install-openvpn.ps1
+          if ($LASTEXITCODE -ne 0) { throw "install-openvpn.ps1 failed (exit $LASTEXITCODE)" }
           $exe = "C:\Program Files\OpenVPN\bin\openvpn.exe"
-          $pinnedVersion = "2.7.9"
-          if (-not (Test-Path $exe)) {
-            if (Get-Command winget -ErrorAction SilentlyContinue) {
-              Write-Host "Installing OpenVPN Community $pinnedVersion via winget..."
-              winget install --id OpenVPNTechnologies.OpenVPN --exact --version $pinnedVersion --accept-package-agreements --accept-source-agreements --silent
-              if (-not (Test-Path $exe)) {
-                Write-Host "Pinned version $pinnedVersion unavailable in winget; installing latest..."
-                winget install --id OpenVPNTechnologies.OpenVPN --exact --accept-package-agreements --accept-source-agreements --silent
-              }
-            }
-          }
-          if (-not (Test-Path $exe)) {
-            Write-Host "Falling back to Chocolatey OpenVPN install..."
-            choco install openvpn --yes --no-progress
-          }
-          if (-not (Test-Path $exe)) {
-            throw "OpenVPN executable not found at $exe after install"
-          }
+          if (-not (Test-Path $exe)) { throw "OpenVPN executable not found at $exe after install" }
           & $exe --version | Select-Object -First 3
 
       - name: Run real OpenVPN Windows E2E tests
@@ -134,6 +122,15 @@ jobs:
           if (-not (Test-Path (Join-Path $installDir "openwrap-app.exe"))) {
             throw "Installed openwrap-app.exe not found in $installDir"
           }
+          $setupScript = Join-Path $installDir "install-openvpn.ps1"
+          if (-not (Test-Path $setupScript)) {
+            throw "install-openvpn.ps1 not bundled in $installDir"
+          }
+          # OpenVPN was installed above, so the bundled setup script must find it.
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $setupScript -CheckOnly
+          if ($LASTEXITCODE -ne 0) { throw "install-openvpn.ps1 -CheckOnly did not find OpenVPN (exit $LASTEXITCODE)" }
+          Write-Host "Confirmed: install-openvpn.ps1 is bundled and detects OpenVPN."
+
           $uninstaller = Join-Path $installDir "uninstall.exe"
           if (-not (Test-Path $uninstaller)) {
             throw "uninstall.exe not found in $installDir"

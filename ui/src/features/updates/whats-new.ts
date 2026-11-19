@@ -14,23 +14,23 @@ export interface WhatsNewNotes {
 }
 
 export const WHATS_NEW: WhatsNewNotes = {
-  id: '2026-11-openvpn-repair',
-  headline: 'OpenWrap can now repair OpenVPN',
+  id: '2026-11-windows-installer',
+  headline: 'OpenWrap for Windows is ready to try',
   points: [
     {
-      title: 'Fixes OpenVPN after a Homebrew update',
+      title: 'Share it with Windows colleagues',
       detail:
-        'If OpenVPN stops working, OpenWrap tells you and offers Repair OpenVPN, which updates it with Homebrew in Terminal.',
+        'Each release now has OpenWrap-Windows-Setup.exe. Running it also offers to install OpenVPN, so there is nothing else to download. It is still experimental.',
     },
     {
-      title: 'Connection failing? Try Update OpenVPN',
+      title: 'OpenVPN missing? One click',
       detail:
-        'When a connection fails, the error now shows your OpenVPN version and an Update OpenVPN button. It is also in Settings.',
+        'If OpenVPN is not installed, OpenWrap now says so when it starts and offers Install OpenVPN, instead of waiting for a connection to fail.',
     },
     {
       title: 'Keep "All DNS through VPN" for now',
       detail:
-        'The "Only listed domains" DNS mode from the previous version does not work yet. It will be fixed in a later update.',
+        'The "Only listed domains" DNS mode does not work yet. It will be fixed in a later update.',
     },
   ],
 }
