@@ -348,3 +348,139 @@ mod tests {
         handle.join().expect("disconnect thread must not panic");
     }
 }
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::Duration;
+
+    use tempfile::tempdir;
+    use tokio::time::timeout;
+
+    use super::DirectOpenVpnBackend;
+    use crate::connection::SessionId;
+    use crate::openvpn::{BackendEvent, ConnectRequest};
+    use crate::profiles::ProfileId;
+    use crate::VpnBackend;
+
+    #[tokio::test]
+    async fn launches_openvpn_from_config_directory_and_passes_service_flag() {
+        if !crate::windows::is_elevated() {
+            return;
+        }
+
+        let temp = tempdir().unwrap();
+        let profile_dir = temp.path().join("profiles").join("profile 1");
+        let runtime_dir = temp
+            .path()
+            .join("runtime")
+            .join("profile-1")
+            .join("session-1");
+        fs::create_dir_all(&profile_dir).unwrap();
+        fs::create_dir_all(&runtime_dir).unwrap();
+
+        let fake_openvpn = temp.path().join("fake-openvpn.cmd");
+        fs::write(&fake_openvpn, "@echo off\r\ncd\r\necho ARGS:%*\r\n").unwrap();
+
+        let config_path = profile_dir.join("profile.ovpn");
+        fs::write(&config_path, "client\n").unwrap();
+
+        let backend = DirectOpenVpnBackend::new();
+        let spawned = backend
+            .connect(ConnectRequest {
+                session_id: SessionId::new(),
+                profile_id: ProfileId::new(),
+                openvpn_binary: fake_openvpn,
+                config_path,
+                auth_file: None,
+                runtime_dir,
+                dns_policy: crate::dns::DnsPolicy::ObserveOnly,
+                dns_intent: Vec::new(),
+            })
+            .unwrap();
+
+        let mut event_rx = spawned.event_rx;
+        let mut lines = Vec::new();
+        timeout(Duration::from_secs(5), async {
+            while let Some(event) = event_rx.recv().await {
+                match event {
+                    BackendEvent::Stdout(line) => lines.push(line),
+                    BackendEvent::Exited(_) => break,
+                    _ => {}
+                }
+            }
+        })
+        .await
+        .unwrap();
+
+        let cwd = lines
+            .first()
+            .expect("expected working directory line from fake-openvpn.cmd");
+        assert_eq!(
+            PathBuf::from(cwd).canonicalize().unwrap(),
+            profile_dir.canonicalize().unwrap()
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("--service openwrap-exit-") && line.ends_with(" 0")),
+            "expected --service <event> 0 in args, got: {lines:?}"
+        );
+    }
+
+    #[test]
+    fn disconnect_does_not_panic_without_tokio_runtime() {
+        if !crate::windows::is_elevated() {
+            return;
+        }
+
+        let backend = DirectOpenVpnBackend::new();
+        let session_id = SessionId::new();
+
+        let temp = tempdir().unwrap();
+        let profile_dir = temp.path().join("profiles").join("profile-1");
+        let runtime_dir = temp
+            .path()
+            .join("runtime")
+            .join("profile-1")
+            .join("session-1");
+        fs::create_dir_all(&profile_dir).unwrap();
+        fs::create_dir_all(&runtime_dir).unwrap();
+
+        let sleeper = temp.path().join("sleeper.cmd");
+        fs::write(&sleeper, "@echo off\r\nping -n 30 127.0.0.1 >nul\r\n").unwrap();
+
+        let config_path = profile_dir.join("profile.ovpn");
+        fs::write(&config_path, "client\n").unwrap();
+
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(async {
+            backend
+                .connect(ConnectRequest {
+                    session_id: session_id.clone(),
+                    profile_id: ProfileId::new(),
+                    openvpn_binary: sleeper,
+                    config_path,
+                    auth_file: None,
+                    runtime_dir,
+                    dns_policy: crate::dns::DnsPolicy::ObserveOnly,
+                    dns_intent: Vec::new(),
+                })
+                .unwrap();
+        });
+
+        let backend = std::sync::Arc::new(backend);
+        let backend_for_thread = backend.clone();
+        let session_id_for_thread = session_id.clone();
+        let handle = std::thread::spawn(move || {
+            backend_for_thread
+                .disconnect(session_id_for_thread)
+                .expect("disconnect should succeed without a runtime");
+        });
+        handle.join().expect("disconnect thread must not panic");
+    }
+}

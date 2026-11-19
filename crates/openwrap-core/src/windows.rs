@@ -178,3 +178,46 @@ pub fn openvpn_candidates() -> Vec<PathBuf> {
     candidates.push(PathBuf::from(r"C:\Program Files\OpenVPN\bin\openvpn.exe"));
     candidates
 }
+
+#[cfg(test)]
+mod tests {
+    use std::process::Command;
+    use std::time::Duration;
+
+    use super::{openvpn_candidates, to_wide, ExitEvent, ProcessHandle};
+
+    #[test]
+    fn to_wide_null_terminates_utf16() {
+        let wide = to_wide("abc");
+        assert_eq!(wide, vec![b'a' as u16, b'b' as u16, b'c' as u16, 0]);
+    }
+
+    #[test]
+    fn exit_event_can_be_created_and_signaled() {
+        let name = format!("openwrap-test-event-{}", uuid::Uuid::new_v4());
+        let event = ExitEvent::create(name.clone()).unwrap();
+        assert_eq!(event.name(), name);
+        event.signal();
+    }
+
+    #[test]
+    fn process_handle_terminates_after_grace_period() {
+        let mut child = Command::new("cmd.exe")
+            .args(["/C", "ping -n 30 127.0.0.1 >nul"])
+            .spawn()
+            .unwrap();
+        let handle = ProcessHandle::open(child.id()).expect("should open child process handle");
+        handle.wait_or_terminate(Duration::from_millis(50));
+        let status = child.wait().unwrap();
+        assert!(!status.success());
+    }
+
+    #[test]
+    fn openvpn_candidates_include_default_program_files_path() {
+        let candidates = openvpn_candidates();
+        assert!(candidates
+            .iter()
+            .any(|path| path
+                == &std::path::PathBuf::from(r"C:\Program Files\OpenVPN\bin\openvpn.exe")));
+    }
+}

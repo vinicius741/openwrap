@@ -70,8 +70,78 @@ jobs:
           npm test
           cargo test -p openwrap-core -p openwrap-app
 
+      - name: Verify test binaries do not require elevation
+        shell: pwsh
+        run: |
+          $testBins = Get-ChildItem -Path target/debug/deps -Filter "openwrap_app_lib-*.exe"
+          if (-not $testBins) { throw "No openwrap-app test binary found" }
+          foreach ($bin in $testBins) {
+            $text = [System.Text.Encoding]::ASCII.GetString([System.IO.File]::ReadAllBytes($bin.FullName))
+            if ($text.Contains("requireAdministrator")) {
+              throw "requireAdministrator manifest leaked into test binary $($bin.Name)"
+            }
+          }
+          Write-Host "Confirmed: openwrap-app test binary does not embed requireAdministrator."
+
+      - name: Install OpenVPN Community for Windows E2E
+        shell: pwsh
+        run: |
+          $exe = "C:\Program Files\OpenVPN\bin\openvpn.exe"
+          if (-not (Test-Path $exe)) {
+            if (Get-Command winget -ErrorAction SilentlyContinue) {
+              Write-Host "Installing OpenVPN Community via winget..."
+              winget install --id OpenVPNTechnologies.OpenVPN --exact --accept-package-agreements --accept-source-agreements --silent
+            }
+          }
+          if (-not (Test-Path $exe)) {
+            Write-Host "Falling back to Chocolatey OpenVPN install..."
+            choco install openvpn --yes --no-progress
+          }
+          if (-not (Test-Path $exe)) {
+            throw "OpenVPN executable not found at $exe after install"
+          }
+          & $exe --version | Select-Object -First 3
+
+      - name: Run real OpenVPN Windows E2E tests
+        run: cargo test -p openwrap-core --test windows_openvpn_e2e -- --ignored --nocapture
+
       - name: Build OpenWrap installer (unsigned)
         run: npx --yes @tauri-apps/cli@2 build --bundles nsis
+
+      - name: Verify app manifest and NSIS install/uninstall
+        shell: pwsh
+        run: |
+          $appExe = "target/release/openwrap-app.exe"
+          $text = [System.Text.Encoding]::ASCII.GetString([System.IO.File]::ReadAllBytes((Resolve-Path $appExe)))
+          if (-not $text.Contains("requireAdministrator")) {
+            throw "openwrap-app.exe is missing requireAdministrator manifest"
+          }
+          Write-Host "Confirmed: openwrap-app.exe embeds requireAdministrator."
+
+          $installer = Get-ChildItem -Path target/release/bundle/nsis -Filter "*.exe" | Select-Object -First 1
+          if (-not $installer) { throw "NSIS installer not found" }
+          $installDir = Join-Path $env:TEMP "openwrap-nsis-test"
+          if (Test-Path $installDir) { Remove-Item -Recurse -Force $installDir }
+
+          Write-Host "Running silent install of $($installer.Name) to $installDir..."
+          $p = Start-Process -FilePath $installer.FullName -ArgumentList "/S", "/D=$installDir" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Silent install exited with $($p.ExitCode)" }
+          if (-not (Test-Path (Join-Path $installDir "openwrap-app.exe"))) {
+            throw "Installed openwrap-app.exe not found in $installDir"
+          }
+          $uninstaller = Join-Path $installDir "uninstall.exe"
+          if (-not (Test-Path $uninstaller)) {
+            throw "uninstall.exe not found in $installDir"
+          }
+
+          Write-Host "Running silent uninstall..."
+          $u = Start-Process -FilePath $uninstaller -ArgumentList "/S", "_?=$installDir" -Wait -PassThru
+          if ($u.ExitCode -ne 0) { throw "Silent uninstall exited with $($u.ExitCode)" }
+          if (Test-Path (Join-Path $installDir "openwrap-app.exe")) {
+            throw "openwrap-app.exe still exists after uninstall"
+          }
+          Remove-Item -Recurse -Force $installDir -ErrorAction SilentlyContinue
+          Write-Host "Confirmed: NSIS silent install and uninstall succeeded."
 
       - uses: actions/upload-artifact@v4
         with:
