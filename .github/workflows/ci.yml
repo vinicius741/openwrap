@@ -87,10 +87,15 @@ jobs:
         shell: pwsh
         run: |
           $exe = "C:\Program Files\OpenVPN\bin\openvpn.exe"
+          $pinnedVersion = "2.7.9"
           if (-not (Test-Path $exe)) {
             if (Get-Command winget -ErrorAction SilentlyContinue) {
-              Write-Host "Installing OpenVPN Community via winget..."
-              winget install --id OpenVPNTechnologies.OpenVPN --exact --accept-package-agreements --accept-source-agreements --silent
+              Write-Host "Installing OpenVPN Community $pinnedVersion via winget..."
+              winget install --id OpenVPNTechnologies.OpenVPN --exact --version $pinnedVersion --accept-package-agreements --accept-source-agreements --silent
+              if (-not (Test-Path $exe)) {
+                Write-Host "Pinned version $pinnedVersion unavailable in winget; installing latest..."
+                winget install --id OpenVPNTechnologies.OpenVPN --exact --accept-package-agreements --accept-source-agreements --silent
+              }
             }
           }
           if (-not (Test-Path $exe)) {

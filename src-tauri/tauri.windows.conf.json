@@ -8,6 +8,7 @@
     "resources": null,
     "windows": {
       "nsis": {
+        "installMode": "perMachine",
         "installerHooks": "windows/hooks.nsh"
       }
     }

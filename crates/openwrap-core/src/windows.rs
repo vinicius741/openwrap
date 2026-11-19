@@ -4,15 +4,24 @@
 use std::ffi::OsString;
 use std::io;
 use std::os::windows::ffi::OsStringExt;
+use std::os::windows::io::RawHandle;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use windows_sys::Win32::Foundation::{CloseHandle, ERROR_SUCCESS, HANDLE, WAIT_TIMEOUT};
+use windows_sys::Win32::Foundation::{
+    CloseHandle, DuplicateHandle, ERROR_ACCESS_DENIED, ERROR_SUCCESS, HANDLE, WAIT_FAILED,
+    WAIT_OBJECT_0,
+};
+use windows_sys::Win32::System::JobObjects::{
+    AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
+    SetInformationJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+    JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+};
 use windows_sys::Win32::System::Registry::{
     RegGetValueW, HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ, RRF_SUBKEY_WOW6464KEY,
 };
 use windows_sys::Win32::System::Threading::{
-    CreateEventW, OpenProcess, SetEvent, TerminateProcess, WaitForSingleObject,
+    CreateEventW, GetCurrentProcess, OpenProcess, SetEvent, TerminateProcess, WaitForSingleObject,
     PROCESS_SYNCHRONIZE, PROCESS_TERMINATE,
 };
 use windows_sys::Win32::UI::Shell::IsUserAnAdmin;
@@ -59,8 +68,12 @@ impl ExitEvent {
     }
 
     pub fn signal(&self) {
-        unsafe {
-            SetEvent(self.handle);
+        if unsafe { SetEvent(self.handle) } == 0 {
+            eprintln!(
+                "Warning: failed to signal OpenVPN exit event {}: {}",
+                self.name,
+                io::Error::last_os_error()
+            );
         }
     }
 }
@@ -82,6 +95,33 @@ unsafe impl Send for ProcessHandle {}
 unsafe impl Sync for ProcessHandle {}
 
 impl ProcessHandle {
+    /// Duplicates an existing child process handle without re-opening by PID,
+    /// avoiding PID reuse races and `OpenProcess` access failures.
+    pub fn from_raw_handle(raw: RawHandle) -> Option<Self> {
+        let current = unsafe { GetCurrentProcess() };
+        let mut duplicated: HANDLE = std::ptr::null_mut();
+        let ok = unsafe {
+            DuplicateHandle(
+                current,
+                raw as HANDLE,
+                current,
+                &mut duplicated,
+                PROCESS_TERMINATE | PROCESS_SYNCHRONIZE,
+                0,
+                0,
+            )
+        };
+        if ok != 0 && !duplicated.is_null() {
+            Some(Self(duplicated))
+        } else {
+            eprintln!(
+                "Warning: DuplicateHandle for OpenVPN child failed: {}",
+                io::Error::last_os_error()
+            );
+            None
+        }
+    }
+
     pub fn open(pid: u32) -> Option<Self> {
         let handle = unsafe { OpenProcess(PROCESS_TERMINATE | PROCESS_SYNCHRONIZE, 0, pid) };
         (!handle.is_null()).then_some(Self(handle))
@@ -90,15 +130,75 @@ impl ProcessHandle {
     /// Waits up to `grace` for the process to exit, then terminates it.
     pub fn wait_or_terminate(&self, grace: Duration) {
         let millis = u32::try_from(grace.as_millis()).unwrap_or(u32::MAX);
-        unsafe {
-            if WaitForSingleObject(self.0, millis) == WAIT_TIMEOUT {
-                TerminateProcess(self.0, 1);
+        let wait_result = unsafe { WaitForSingleObject(self.0, millis) };
+        if wait_result == WAIT_OBJECT_0 {
+            return;
+        }
+        if wait_result == WAIT_FAILED {
+            eprintln!(
+                "Warning: WaitForSingleObject on OpenVPN process failed: {}",
+                io::Error::last_os_error()
+            );
+        }
+        if unsafe { TerminateProcess(self.0, 1) } == 0 {
+            let err = io::Error::last_os_error();
+            if err.raw_os_error() != Some(ERROR_ACCESS_DENIED as i32) {
+                eprintln!("Warning: TerminateProcess on OpenVPN failed: {err}");
             }
         }
     }
 }
 
 impl Drop for ProcessHandle {
+    fn drop(&mut self) {
+        unsafe {
+            CloseHandle(self.0);
+        }
+    }
+}
+
+/// Job object configured with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`.
+/// Assigning `openvpn.exe` to this job guarantees Windows terminates it if
+/// OpenWrap crashes or exits unexpectedly before a graceful disconnect finishes.
+#[derive(Debug)]
+pub struct JobObject(HANDLE);
+
+unsafe impl Send for JobObject {}
+unsafe impl Sync for JobObject {}
+
+impl JobObject {
+    pub fn create_kill_on_close() -> io::Result<Self> {
+        let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
+        if handle.is_null() {
+            return Err(io::Error::last_os_error());
+        }
+        let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { std::mem::zeroed() };
+        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        let ok = unsafe {
+            SetInformationJobObject(
+                handle,
+                JobObjectExtendedLimitInformation,
+                (&raw const info).cast(),
+                std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+            )
+        };
+        if ok == 0 {
+            let err = io::Error::last_os_error();
+            unsafe { CloseHandle(handle) };
+            return Err(err);
+        }
+        Ok(Self(handle))
+    }
+
+    pub fn assign_raw_handle(&self, raw: RawHandle) -> io::Result<()> {
+        if unsafe { AssignProcessToJobObject(self.0, raw as HANDLE) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(())
+    }
+}
+
+impl Drop for JobObject {
     fn drop(&mut self) {
         unsafe {
             CloseHandle(self.0);
@@ -181,10 +281,11 @@ pub fn openvpn_candidates() -> Vec<PathBuf> {
 
 #[cfg(test)]
 mod tests {
+    use std::os::windows::io::AsRawHandle;
     use std::process::Command;
     use std::time::Duration;
 
-    use super::{openvpn_candidates, to_wide, ExitEvent, ProcessHandle};
+    use super::{openvpn_candidates, to_wide, ExitEvent, JobObject, ProcessHandle};
 
     #[test]
     fn to_wide_null_terminates_utf16() {
@@ -206,8 +307,23 @@ mod tests {
             .args(["/C", "ping -n 30 127.0.0.1 >nul"])
             .spawn()
             .unwrap();
-        let handle = ProcessHandle::open(child.id()).expect("should open child process handle");
+        let handle = ProcessHandle::from_raw_handle(child.as_raw_handle())
+            .expect("should duplicate child process handle");
         handle.wait_or_terminate(Duration::from_millis(50));
+        let status = child.wait().unwrap();
+        assert!(!status.success());
+    }
+
+    #[test]
+    fn job_object_terminates_assigned_process_on_drop() {
+        let job = JobObject::create_kill_on_close().expect("should create job object");
+        let mut child = Command::new("cmd.exe")
+            .args(["/C", "ping -n 30 127.0.0.1 >nul"])
+            .spawn()
+            .unwrap();
+        job.assign_raw_handle(child.as_raw_handle())
+            .expect("should assign child process to job");
+        drop(job);
         let status = child.wait().unwrap();
         assert!(!status.success());
     }

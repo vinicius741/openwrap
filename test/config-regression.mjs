@@ -305,7 +305,8 @@ describe('src-tauri/tauri.windows.conf.json', () => {
     assert.match(buildScript, /windows\/openwrap\.exe\.manifest/)
   })
 
-  it('uses an NSIS finish-page hook compatible with requireAdministrator', () => {
+  it('uses perMachine NSIS installMode and a finish-page hook compatible with requireAdministrator', () => {
+    assert.equal(config.bundle?.windows?.nsis?.installMode, 'perMachine')
     assert.equal(config.bundle?.windows?.nsis?.installerHooks, 'windows/hooks.nsh')
     const hooks = readFileSync(resolve(root, 'src-tauri', 'windows', 'hooks.nsh'), 'utf-8')
     assert.match(hooks, /NSIS_HOOK_PREFINISHPAGE/)

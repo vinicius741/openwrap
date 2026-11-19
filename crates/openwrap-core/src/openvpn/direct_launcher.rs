@@ -21,6 +21,11 @@ use crate::VpnBackend;
 #[cfg(windows)]
 const WINDOWS_GRACEFUL_EXIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
+/// Shorter bounded wait used during application shutdown so OpenVPN can finish
+/// restoring routes and DNS before the process exits and closes the Job Object.
+#[cfg(windows)]
+const WINDOWS_SHUTDOWN_EXIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 // On Windows, disconnect goes through `windows`; `child` is only kept alive.
 #[cfg_attr(windows, allow(dead_code))]
 #[derive(Debug)]
@@ -33,12 +38,16 @@ struct ChildHandle {
 
 /// Windows has no SIGTERM: OpenVPN is started with `--service <event> 0` and
 /// stops cleanly once that event is signalled (the same mechanism openvpn-gui
-/// uses when it launches OpenVPN directly).
+/// uses when it launches OpenVPN directly). A Job Object with
+/// `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` ensures `openvpn.exe` is also killed
+/// if OpenWrap crashes before a graceful disconnect finishes.
 #[cfg(windows)]
 #[derive(Debug)]
 struct WindowsControl {
     exit_event: crate::windows::ExitEvent,
     process: Option<crate::windows::ProcessHandle>,
+    #[allow(dead_code)]
+    job: Option<crate::windows::JobObject>,
 }
 
 #[derive(Debug, Default)]
@@ -89,9 +98,30 @@ impl VpnBackend for DirectOpenVpnBackend {
         let mut child = command.spawn().map_err(map_spawn_error)?;
         let pid = child.id();
         #[cfg(windows)]
-        let windows = WindowsControl {
-            exit_event,
-            process: pid.and_then(crate::windows::ProcessHandle::open),
+        let windows = {
+            let raw_handle = child.raw_handle();
+            let process = raw_handle
+                .and_then(crate::windows::ProcessHandle::from_raw_handle)
+                .or_else(|| pid.and_then(crate::windows::ProcessHandle::open));
+            let job = raw_handle.and_then(|raw| {
+                let job = match crate::windows::JobObject::create_kill_on_close() {
+                    Ok(job) => job,
+                    Err(error) => {
+                        eprintln!("Warning: could not create OpenVPN job object: {error}");
+                        return None;
+                    }
+                };
+                if let Err(error) = job.assign_raw_handle(raw) {
+                    eprintln!("Warning: could not assign OpenVPN to job object: {error}");
+                    return None;
+                }
+                Some(job)
+            });
+            WindowsControl {
+                exit_event,
+                process,
+                job,
+            }
         };
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
@@ -165,15 +195,27 @@ impl VpnBackend for DirectOpenVpnBackend {
     fn disconnect(&self, session_id: SessionId) -> Result<(), AppError> {
         if let Some(handle) = self.children.lock().remove(&session_id) {
             handle.windows.exit_event.signal();
-            // A plain thread (not tokio::spawn) so this also works from
-            // ConnectionManager::shutdown() on the main thread. If the app
-            // exits first, OpenVPN still sees the signalled event and stops.
+            // A plain thread (not tokio::spawn) so disconnect never requires an
+            // entered Tokio runtime. `handle` (including the Job Object) stays
+            // alive until OpenVPN exits cleanly or the grace period expires.
             std::thread::spawn(move || {
                 if let Some(process) = &handle.windows.process {
                     process.wait_or_terminate(WINDOWS_GRACEFUL_EXIT_TIMEOUT);
                 }
                 drop(handle);
             });
+        }
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    fn disconnect_on_shutdown(&self, session_id: SessionId) -> Result<(), AppError> {
+        if let Some(handle) = self.children.lock().remove(&session_id) {
+            handle.windows.exit_event.signal();
+            if let Some(process) = &handle.windows.process {
+                process.wait_or_terminate(WINDOWS_SHUTDOWN_EXIT_TIMEOUT);
+            }
+            drop(handle);
         }
         Ok(())
     }

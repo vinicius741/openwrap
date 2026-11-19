@@ -24,15 +24,32 @@ fn platform_reveal(path: &Path) -> std::io::Result<()> {
     // explorer.exe also reports a non-zero exit code even on success, so only
     // spawn failures are treated as errors.
     let raw_arg = windows_explorer_select_arg(path)?;
-    Command::new("explorer.exe").raw_arg(raw_arg).spawn()?;
+    Command::new(windows_explorer_path())
+        .raw_arg(raw_arg)
+        .spawn()?;
     Ok(())
+}
+
+#[cfg(windows)]
+fn windows_explorer_path() -> std::path::PathBuf {
+    std::env::var_os("SystemRoot")
+        .filter(|value| !value.is_empty())
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from(r"C:\Windows"))
+        .join("explorer.exe")
 }
 
 #[cfg(any(windows, test))]
 fn windows_explorer_select_arg(path: &Path) -> std::io::Result<String> {
     let raw = path.to_string_lossy();
-    let stripped = raw.strip_prefix(r"\\?\").unwrap_or(&raw);
-    let normalized = stripped.replace('/', "\\");
+    let normalized = if let Some(unc) = raw
+        .strip_prefix(r"\\?\UNC\")
+        .or_else(|| raw.strip_prefix(r"\\?\unc\"))
+    {
+        format!(r"\\{}", unc.replace('/', "\\"))
+    } else {
+        raw.strip_prefix(r"\\?\").unwrap_or(&raw).replace('/', "\\")
+    };
     if normalized.contains('"') {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -68,6 +85,18 @@ mod tests {
         assert_eq!(
             arg,
             r#"/select,"C:\Users\Jane Doe\AppData\Local\OpenWrap\logs\openvpn.log""#
+        );
+    }
+
+    #[test]
+    fn formats_explorer_select_arg_for_verbatim_unc_paths() {
+        let arg = windows_explorer_select_arg(Path::new(
+            r"\\?\UNC\fileserver\share\OpenWrap/logs/openvpn.log",
+        ))
+        .unwrap();
+        assert_eq!(
+            arg,
+            r#"/select,"\\fileserver\share\OpenWrap\logs\openvpn.log""#
         );
     }
 

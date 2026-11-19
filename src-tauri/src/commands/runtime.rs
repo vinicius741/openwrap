@@ -54,7 +54,7 @@ fn setup_error(message: impl Into<String>) -> CommandError {
             message,
             suggested_fix: Some(
                 if cfg!(windows) {
-                    "Check the output in the setup window, or install OpenVPN Community manually from https://openvpn.net/community-downloads/ and restart OpenWrap."
+                    "Run \"winget install --id OpenVPNTechnologies.OpenVPN --exact\" in an elevated Command Prompt, or install OpenVPN Community manually from https://openvpn.net/community-downloads/ and restart OpenWrap."
                 } else {
                     "Check the output in Terminal, then try again. Keep the Terminal window open until setup finishes."
                 }
@@ -183,10 +183,13 @@ fn installer_wrapper(script: &str, result_path: &Path) -> String {
 fn run_installer(_override_path: Option<&Path>) -> Result<(), CommandError> {
     use std::os::windows::process::CommandExt;
 
+    let winget = resolve_winget_exe()
+        .ok_or_else(|| setup_error("winget (App Installer) is not available on this PC."))?;
+
     // CREATE_NEW_CONSOLE: show winget's progress in its own window. The child
     // inherits OpenWrap's elevated token, so the installer needs no extra prompt.
     const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
-    let status = std::process::Command::new("winget")
+    let status = std::process::Command::new(winget)
         .args([
             "install",
             "--id",
@@ -210,6 +213,56 @@ fn run_installer(_override_path: Option<&Path>) -> Result<(), CommandError> {
             "The OpenVPN installer failed or was cancelled.",
         ))
     }
+}
+
+#[cfg(windows)]
+fn resolve_winget_exe() -> Option<PathBuf> {
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(Path::to_path_buf));
+    let mut dirs = Vec::new();
+    if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
+        dirs.push(
+            PathBuf::from(local_app_data)
+                .join("Microsoft")
+                .join("WindowsApps"),
+        );
+    }
+    if let Some(path_env) = std::env::var_os("PATH") {
+        dirs.extend(std::env::split_paths(&path_env));
+    }
+    resolve_winget_in_dirs(dirs, exe_dir.as_deref())
+}
+
+#[cfg(any(windows, test))]
+fn resolve_winget_in_dirs(
+    dirs: impl IntoIterator<Item = PathBuf>,
+    excluded_dir: Option<&Path>,
+) -> Option<PathBuf> {
+    let excluded_norm = excluded_dir.map(normalize_dir_for_compare);
+    for dir in dirs {
+        if !dir.is_absolute() {
+            continue;
+        }
+        if let Some(excluded) = &excluded_norm {
+            if normalize_dir_for_compare(&dir) == *excluded {
+                continue;
+            }
+        }
+        let candidate = dir.join("winget.exe");
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+#[cfg(any(windows, test))]
+fn normalize_dir_for_compare(path: &Path) -> String {
+    path.to_string_lossy()
+        .replace('/', "\\")
+        .trim_end_matches('\\')
+        .to_ascii_lowercase()
 }
 
 #[cfg(not(any(target_os = "macos", windows)))]
@@ -375,5 +428,31 @@ mod tests {
         );
         assert_eq!(std::fs::read_to_string(result_path).unwrap().trim(), "0");
         assert!(String::from_utf8_lossy(&output.stdout).contains("OpenVPN is ready"));
+    }
+}
+
+#[cfg(test)]
+mod winget_resolution_tests {
+    use std::path::PathBuf;
+
+    use super::resolve_winget_in_dirs;
+
+    #[test]
+    fn skips_relative_and_application_directories() {
+        let temp = tempfile::tempdir().unwrap();
+        let app_dir = temp.path().join("app");
+        let system_dir = temp.path().join("windows-apps");
+        std::fs::create_dir_all(&app_dir).unwrap();
+        std::fs::create_dir_all(&system_dir).unwrap();
+
+        std::fs::write(app_dir.join("winget.exe"), b"planted").unwrap();
+        let expected = system_dir.join("winget.exe");
+        std::fs::write(&expected, b"real").unwrap();
+
+        let resolved = resolve_winget_in_dirs(
+            [PathBuf::from("."), app_dir.clone(), system_dir],
+            Some(&app_dir),
+        );
+        assert_eq!(resolved, Some(expected));
     }
 }

@@ -125,6 +125,10 @@ mod platform {
         };
         unsafe { CredFree(credential.cast()) };
 
+        if payload.is_empty() {
+            return Ok(None);
+        }
+
         serde_json::from_slice::<StoredSecret>(&payload)
             .map(Some)
             .map_err(|error| AppError::Keychain(error.to_string()))

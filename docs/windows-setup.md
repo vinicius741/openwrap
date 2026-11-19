@@ -38,7 +38,8 @@ adapter and change routes and DNS.
 
 Requirements: Rust stable (MSVC toolchain + Visual Studio Build Tools with the
 "Desktop development with C++" workload), Node 22, and
-`cargo install tauri-cli --version "^2.0.0" --locked`.
+`cargo install tauri-cli --version "^2.3.0" --locked` (Tauri CLI 2.3+ is
+required for `NSIS_HOOK_PREFINISHPAGE` in `src-tauri/windows/hooks.nsh`).
 
 Run everything from an **elevated** terminal (Run as administrator). The app
 binary requests elevation, so `cargo tauri dev` from a normal terminal fails with
@@ -54,28 +55,45 @@ npx @tauri-apps/cli@2 build --bundles nsis   # installer in target\release\bundl
 ```
 
 `src-tauri/tauri.windows.conf.json` is merged automatically on Windows: it
-skips building the Unix-only helper and builds an NSIS installer.
+skips building the Unix-only helper and builds a per-machine NSIS installer
+(`C:\Program Files\OpenWrap`).
 
 ## How it works
 
 | Area | Windows behavior |
 |---|---|
-| VPN backend | `DirectOpenVpnBackend` spawns `openvpn.exe` with no console window. Connect fails with a clear message if the app is not elevated. |
-| Disconnect | OpenVPN is started with `--service <event> 0`. Disconnect signals that named event so OpenVPN shuts down cleanly (routes and DNS restored), then force-terminates it after 10 s if it is still running. |
-| DNS | OpenVPN applies DNS itself. Full override (default): adds `block-outside-dns` (WFP). Split DNS (VPN adapter): no extra directives. Observe only: `pull-filter ignore` for pushed DNS options. |
+| Installer | Per-machine NSIS installer into `C:\Program Files\OpenWrap` (admin-writable), separate from app data in `%LOCALAPPDATA%\OpenWrap`. |
+| VPN backend | `DirectOpenVpnBackend` spawns `openvpn.exe` with no console window and assigns it to a `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` Job Object so `openvpn.exe` cannot be orphaned if OpenWrap crashes. Connect fails with a clear message if the app is not elevated. |
+| Disconnect | OpenVPN is started with `--service <event> 0`. Disconnect signals that named event so OpenVPN shuts down cleanly (routes and DNS restored), then force-terminates it after 10 s (5 s on app quit) if it is still running. Stale `runtime/` session files are also swept on startup. |
+| DNS | OpenVPN applies DNS itself. Full override (default): adds `block-outside-dns` (WFP). Split DNS (VPN adapter): strips any profile-local `block-outside-dns` and adds `pull-filter ignore "block-outside-dns"`. Observe only: strips profile-local DNS directives and adds `pull-filter ignore` for pushed DNS options. |
 | Remember username | Windows Credential Manager, generic credential `app.openwrap.credentials:profile-<id>` (username only; passwords are never stored). |
 | Data | `%LOCALAPPDATA%\OpenWrap` (profiles, logs, runtime files). |
-| Reveal in file manager | `explorer.exe /select,"<path>"` (using raw Windows command-line quoting so paths with spaces work). |
+| Reveal in file manager | `%SystemRoot%\explorer.exe /select,"<path>"` (using raw Windows command-line quoting so paths with spaces and UNC paths work). |
 | Profile policy | `windows-driver` is allowed and `block-outside-dns` requires approval on Windows; both stay blocked on macOS. |
 
 ## Known limitations
 
+- **Elevated-app trust boundary**: OpenWrap's executable installs into
+  admin-only `C:\Program Files\OpenWrap`, but imported profiles, logs, and the
+  optional OpenVPN binary path override live in user-writable
+  `%LOCALAPPDATA%\OpenWrap`. Any unelevated process running as the same Windows
+  user can modify files in `%LOCALAPPDATA%\OpenWrap`. This is inherent to the
+  elevated-app design until an unprivileged GUI + Interactive Service backend is
+  implemented.
+- **Over-the-shoulder UAC**: If a standard user approves UAC with a different
+  administrator account, OpenWrap runs under that admin account, so profiles and
+  data are stored under the admin account's `%LOCALAPPDATA%\OpenWrap` (and
+  `winget` may not be registered for that account).
 - The app must run elevated. Start-at-login would need a scheduled task, which
   is not set up. Drag-and-drop from a non-elevated Explorer window into an
   elevated app is blocked by Windows (UIPI); use the import dialog.
-- If OpenWrap crashes while connected, `openvpn.exe` keeps running. There is no
-  startup cleanup on Windows yet; end it in Task Manager.
+- If OpenWrap is force-killed abruptly while connected, Windows terminates
+  `openvpn.exe` via the Job Object, which may leave tunnel routes or NRPT rules
+  in place until reconnecting or rebooting; stale `runtime/` files (including
+  any leftover `auth.txt`) are cleaned on next launch.
 - The non-admin path through OpenVPN's Interactive Service (named pipe plus the
   management interface, as openvpn-gui does) is not implemented.
 - Auto-update and release packaging for Windows are not wired into
-  `release.yml` / `latest.json` yet.
+  `release.yml` / `latest.json` yet (and wiring the NSIS updater later will also
+  require overriding `.onInstSuccess` relaunch for the `requireAdministrator`
+  manifest, just as `hooks.nsh` overrides the finish page).

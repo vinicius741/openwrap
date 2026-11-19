@@ -41,6 +41,15 @@ pub trait VpnBackend: Send + Sync {
 
     fn disconnect(&self, session_id: connection::SessionId) -> Result<(), errors::AppError>;
 
+    /// Synchronous disconnect used during application shutdown so backends can
+    /// briefly wait for graceful teardown before the process exits.
+    fn disconnect_on_shutdown(
+        &self,
+        session_id: connection::SessionId,
+    ) -> Result<(), errors::AppError> {
+        self.disconnect(session_id)
+    }
+
     fn reconcile_dns(
         &self,
         _request: openvpn::ReconcileDnsRequest,

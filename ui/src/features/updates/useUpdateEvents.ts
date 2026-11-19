@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { listen } from '@tauri-apps/api/event'
 
+import { isWindows } from '../../lib/platform'
 import { useAppStore } from '../../store/appStore'
 import type { UpdateProgress } from '../../types/ipc'
 
@@ -12,7 +13,9 @@ export function useUpdateEvents() {
 
   useEffect(() => {
     void loadAppInfo()
-    void checkForUpdates(false)
+    if (!isWindows) {
+      void checkForUpdates(false)
+    }
   }, [loadAppInfo, checkForUpdates])
 
   useEffect(() => {

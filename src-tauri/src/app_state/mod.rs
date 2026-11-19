@@ -46,6 +46,9 @@ impl AppState {
             eprintln!("Warning: DNS reconciliation failed (continuing anyway): {error}");
         }
 
+        #[cfg(windows)]
+        openwrap_core::connection::manager::sweep_stale_runtime_dir(&paths.runtime_dir);
+
         let connection_manager = Arc::new(ConnectionManager::new(
             paths.clone(),
             repository.clone(),
