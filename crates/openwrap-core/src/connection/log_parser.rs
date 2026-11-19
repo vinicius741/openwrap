@@ -156,7 +156,9 @@ pub fn diagnose_exit_error<'a>(
             "access is denied",
             "failed to create wintun adapter",
             "createfile failed on tap device",
+            "createfile failed on ovpn-dco device",
             "all tap-windows6 adapters on this system are currently in use",
+            "all ovpn-dco adapters on this system are currently in use",
         ],
     ) {
         Some(UserFacingError {
@@ -168,7 +170,7 @@ pub fn diagnose_exit_error<'a>(
             ),
             suggested_fix: Some(
                 if cfg!(windows) {
-                    "Close OpenWrap and run it as administrator, and confirm OpenVPN's Wintun or TAP driver is installed."
+                    "Close OpenWrap and run it as administrator, close any other active OpenVPN connection, and confirm OpenVPN's DCO or TAP network driver is installed."
                 } else {
                     "Verify the privileged helper setup and check that OpenWrap has the required macOS permissions."
                 }

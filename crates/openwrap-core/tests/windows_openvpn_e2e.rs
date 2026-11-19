@@ -34,10 +34,14 @@ const PUSHED_DNS: &str = "10.200.200.1";
 const PUSHED_DOMAIN: &str = "corp.openwrap.test";
 const SERVER_PORT: u16 = 11947;
 
+const SERVER_ADAPTER_NAME: &str = "OpenWrapTestServer";
+
 struct ServerGuard {
     exit_event: ExitEvent,
     process: Option<ProcessHandle>,
     child: Child,
+    tapctl_exe: Option<PathBuf>,
+    adapter_name: Option<String>,
 }
 
 impl Drop for ServerGuard {
@@ -47,6 +51,9 @@ impl Drop for ServerGuard {
             process.wait_or_terminate(Duration::from_secs(5));
         }
         let _ = self.child.wait();
+        if let (Some(tapctl), Some(name)) = (&self.tapctl_exe, &self.adapter_name) {
+            let _ = Command::new(tapctl).args(["delete", name]).output();
+        }
     }
 }
 
@@ -208,7 +215,71 @@ fn generate_pki(dir: &Path) {
     );
 }
 
+fn create_server_adapter(openvpn_exe: &Path) -> (Option<PathBuf>, Option<String>, bool) {
+    let tapctl = openvpn_exe
+        .parent()
+        .map(|dir| dir.join("tapctl.exe"))
+        .filter(|path| path.is_file());
+    let Some(tapctl) = tapctl else {
+        println!(
+            "[tapctl] tapctl.exe not found next to {}",
+            openvpn_exe.display()
+        );
+        return (None, None, false);
+    };
+
+    if let Ok(list) = Command::new(&tapctl).arg("list").output() {
+        println!(
+            "[tapctl] adapters before:\n{}",
+            String::from_utf8_lossy(&list.stdout)
+        );
+    }
+
+    let _ = Command::new(&tapctl)
+        .args(["delete", SERVER_ADAPTER_NAME])
+        .output();
+
+    for (hwid, is_tap) in [
+        ("ovpn-dco", false),
+        ("ovpn-dco-v2", false),
+        ("root\\tap0901", true),
+    ] {
+        let output = Command::new(&tapctl)
+            .args(["create", "--hwid", hwid, "--name", SERVER_ADAPTER_NAME])
+            .output();
+        match output {
+            Ok(out) if out.status.success() => {
+                println!(
+                    "[tapctl] created adapter {SERVER_ADAPTER_NAME} (hwid={hwid}): {}",
+                    String::from_utf8_lossy(&out.stdout).trim()
+                );
+                if let Ok(list) = Command::new(&tapctl).arg("list").output() {
+                    println!(
+                        "[tapctl] adapters after:\n{}",
+                        String::from_utf8_lossy(&list.stdout)
+                    );
+                }
+                return (Some(tapctl), Some(SERVER_ADAPTER_NAME.into()), is_tap);
+            }
+            Ok(out) => {
+                println!(
+                    "[tapctl] create --hwid {hwid} failed ({:?}): {} {}",
+                    out.status.code(),
+                    String::from_utf8_lossy(&out.stdout).trim(),
+                    String::from_utf8_lossy(&out.stderr).trim()
+                );
+            }
+            Err(err) => {
+                println!("[tapctl] failed to run tapctl create --hwid {hwid}: {err}");
+            }
+        }
+    }
+
+    panic!("Could not create a second tunnel adapter for the local OpenVPN test server");
+}
+
 fn start_local_server(openvpn_exe: &Path, server_dir: &Path) -> ServerGuard {
+    let (tapctl_exe, adapter_name, server_uses_tap) = create_server_adapter(openvpn_exe);
     let verify_cmd = server_dir.join("verify-auth.cmd");
     fs::write(
         &verify_cmd,
@@ -221,6 +292,13 @@ fn start_local_server(openvpn_exe: &Path, server_dir: &Path) -> ServerGuard {
     let server_log = server_dir.join("server.log");
     let server_conf = server_dir.join("server.ovpn");
     let quote = |p: &Path| format!("\"{}\"", p.to_string_lossy().replace('\\', "\\\\"));
+    let mut driver_lines = String::new();
+    if let Some(name) = &adapter_name {
+        driver_lines.push_str(&format!("dev-node \"{name}\"\n"));
+    }
+    if server_uses_tap {
+        driver_lines.push_str("disable-dco\n");
+    }
     fs::write(
         &server_conf,
         format!(
@@ -228,8 +306,7 @@ fn start_local_server(openvpn_exe: &Path, server_dir: &Path) -> ServerGuard {
 mode server
 tls-server
 dev tun
-windows-driver wintun
-proto udp
+{driver_lines}proto udp
 local 127.0.0.1
 port {SERVER_PORT}
 topology subnet
@@ -275,6 +352,8 @@ log {}
         exit_event,
         process,
         child,
+        tapctl_exe,
+        adapter_name,
     };
 
     // Wait for server to finish creating its Wintun adapter and start listening.
@@ -425,7 +504,6 @@ async fn windows_real_openvpn_end_to_end() {
             "\
 client
 dev tun
-windows-driver wintun
 proto udp
 remote 127.0.0.1 {SERVER_PORT}
 resolv-retry infinite
