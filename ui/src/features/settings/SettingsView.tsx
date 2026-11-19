@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 
+import { isWindows } from '../../lib/platform'
 import { useAppStore } from '../../store/appStore'
 import { THEMES, getStoredTheme, applyTheme, setStoredTheme, type AppTheme } from '../../lib/theme'
 import { RuntimeSetup } from './runtime-setup'
@@ -67,8 +68,9 @@ export function SettingsView() {
         <h4>OpenVPN community runtime</h4>
         <RuntimeSetup />
         <p className="settings-hint">
-          OpenWrap uses a locally installed privileged helper to launch OpenVPN and reconcile DNS.
-          Install the helper once using the command documented in the README.
+          {isWindows
+            ? 'On Windows, OpenWrap runs as administrator and launches OpenVPN Community directly; no helper is required.'
+            : 'OpenWrap uses a locally installed privileged helper to launch OpenVPN and reconcile DNS. Install the helper once using the command documented in the README.'}
         </p>
       </div>
 

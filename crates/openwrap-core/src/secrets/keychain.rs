@@ -113,11 +113,15 @@ mod platform {
 
         let payload = unsafe {
             let credential = &*credential;
-            std::slice::from_raw_parts(
-                credential.CredentialBlob,
-                credential.CredentialBlobSize as usize,
-            )
-            .to_vec()
+            if credential.CredentialBlob.is_null() || credential.CredentialBlobSize == 0 {
+                Vec::new()
+            } else {
+                std::slice::from_raw_parts(
+                    credential.CredentialBlob,
+                    credential.CredentialBlobSize as usize,
+                )
+                .to_vec()
+            }
         };
         unsafe { CredFree(credential.cast()) };
 
@@ -156,6 +160,57 @@ mod platform {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::KeychainSecretStore;
+    use crate::profiles::ProfileId;
+    use crate::secrets::{StoredSecret, StoredSecretKind};
+    use crate::SecretStore;
+
+    #[test]
+    fn windows_credential_manager_roundtrip_stores_username_only() {
+        let store = KeychainSecretStore::new();
+        let profile_id = ProfileId::new();
+
+        // Deleting a non-existent entry is a no-op.
+        store.delete_password(&profile_id).unwrap();
+        assert!(store.get_password(&profile_id).unwrap().is_none());
+
+        store
+            .set_password(StoredSecret::username_only(
+                profile_id.clone(),
+                "alice@example.com".into(),
+            ))
+            .unwrap();
+
+        let loaded = store
+            .get_password(&profile_id)
+            .unwrap()
+            .expect("expected stored username");
+        assert_eq!(loaded.kind, StoredSecretKind::UsernameOnly);
+        assert_eq!(loaded.username, "alice@example.com");
+        assert!(loaded.pin.is_none());
+        assert!(loaded.totp_secret.is_none());
+
+        // Overwrite existing entry.
+        store
+            .set_password(StoredSecret::username_only(
+                profile_id.clone(),
+                "bob@example.com".into(),
+            ))
+            .unwrap();
+        let updated = store
+            .get_password(&profile_id)
+            .unwrap()
+            .expect("expected updated username");
+        assert_eq!(updated.username, "bob@example.com");
+
+        // Cleanup removes the entry.
+        store.delete_password(&profile_id).unwrap();
+        assert!(store.get_password(&profile_id).unwrap().is_none());
     }
 }
 

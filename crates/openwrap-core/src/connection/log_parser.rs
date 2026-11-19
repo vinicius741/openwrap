@@ -153,6 +153,10 @@ pub fn diagnose_exit_error<'a>(
             "operation not permitted",
             "route addition failed",
             "permission denied",
+            "access is denied",
+            "failed to create wintun adapter",
+            "createfile failed on tap device",
+            "all tap-windows6 adapters on this system are currently in use",
         ],
     ) {
         Some(UserFacingError {
@@ -163,8 +167,12 @@ pub fn diagnose_exit_error<'a>(
                 "OpenVPN started but could not configure the tunnel or routes.",
             ),
             suggested_fix: Some(
-                "Verify the privileged helper setup and check that OpenWrap has the required macOS permissions."
-                    .into(),
+                if cfg!(windows) {
+                    "Close OpenWrap and run it as administrator, and confirm OpenVPN's Wintun or TAP driver is installed."
+                } else {
+                    "Verify the privileged helper setup and check that OpenWrap has the required macOS permissions."
+                }
+                .into(),
             ),
             details_safe,
         })
@@ -277,6 +285,10 @@ fn error_classification(line: &str) -> Option<(LogLevel, &'static str)> {
             "operation not permitted",
             "route addition failed",
             "permission denied",
+            "access is denied",
+            "failed to create wintun adapter",
+            "createfile failed on tap device",
+            "all tap-windows6 adapters on this system are currently in use",
         ],
     ) {
         Some((LogLevel::Error, "permission_error"))

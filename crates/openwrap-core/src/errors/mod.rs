@@ -108,7 +108,12 @@ impl From<&AppError> for UserFacingError {
             },
             AppError::Keychain(message) => Self {
                 code: "keychain_failed".into(),
-                title: "Keychain access failed".into(),
+                title: if cfg!(windows) {
+                    "Credential Manager access failed"
+                } else {
+                    "Keychain access failed"
+                }
+                .into(),
                 message: message.clone(),
                 suggested_fix: Some(
                     if cfg!(windows) {

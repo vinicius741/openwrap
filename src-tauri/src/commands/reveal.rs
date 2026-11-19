@@ -17,12 +17,29 @@ fn platform_reveal(path: &Path) -> std::io::Result<()> {
 
 #[cfg(windows)]
 fn platform_reveal(path: &Path) -> std::io::Result<()> {
-    // `/select,<path>` must be a single argument; explorer.exe reports a
-    // non-zero exit code even on success, so only spawn failures are errors.
-    let mut select = std::ffi::OsString::from("/select,");
-    select.push(path.as_os_str());
-    Command::new("explorer.exe").arg(select).spawn()?;
+    use std::os::windows::process::CommandExt;
+
+    // explorer.exe parses `/select,"<path>"` directly and fails if Rust wraps
+    // the entire flag+path in outer quotes when the path contains spaces.
+    // explorer.exe also reports a non-zero exit code even on success, so only
+    // spawn failures are treated as errors.
+    let raw_arg = windows_explorer_select_arg(path)?;
+    Command::new("explorer.exe").raw_arg(raw_arg).spawn()?;
     Ok(())
+}
+
+#[cfg(any(windows, test))]
+fn windows_explorer_select_arg(path: &Path) -> std::io::Result<String> {
+    let raw = path.to_string_lossy();
+    let stripped = raw.strip_prefix(r"\\?\").unwrap_or(&raw);
+    let normalized = stripped.replace('/', "\\");
+    if normalized.contains('"') {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "path contains an unsupported quote character",
+        ));
+    }
+    Ok(format!("/select,\"{normalized}\""))
 }
 
 #[cfg(not(any(target_os = "macos", windows)))]
@@ -34,4 +51,30 @@ fn platform_reveal(path: &Path) -> std::io::Result<()> {
     };
     Command::new("xdg-open").arg(target).spawn()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::windows_explorer_select_arg;
+
+    #[test]
+    fn formats_explorer_select_arg_with_spaces_and_verbatim_prefix() {
+        let arg = windows_explorer_select_arg(Path::new(
+            r"\\?\C:\Users\Jane Doe\AppData\Local\OpenWrap/logs/openvpn.log",
+        ))
+        .unwrap();
+        assert_eq!(
+            arg,
+            r#"/select,"C:\Users\Jane Doe\AppData\Local\OpenWrap\logs\openvpn.log""#
+        );
+    }
+
+    #[test]
+    fn rejects_embedded_quotes_in_explorer_select_arg() {
+        let err =
+            windows_explorer_select_arg(Path::new(r#"C:\Users\bad"path\file.log"#)).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+    }
 }
