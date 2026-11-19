@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 
+import { isWindows } from '../../lib/platform'
 import { useAppStore } from '../../store/appStore'
 import { THEMES, getStoredTheme, applyTheme, setStoredTheme, type AppTheme } from '../../lib/theme'
 import { RuntimeSetup } from './runtime-setup'
@@ -67,8 +68,9 @@ export function SettingsView() {
         <h4>OpenVPN community runtime</h4>
         <RuntimeSetup />
         <p className="settings-hint">
-          OpenWrap uses a locally installed privileged helper to launch OpenVPN and reconcile DNS.
-          Install the helper once using the command documented in the README.
+          {isWindows
+            ? 'On Windows, OpenWrap runs as administrator and launches OpenVPN Community directly; no helper is required.'
+            : 'OpenWrap uses a locally installed privileged helper to launch OpenVPN and reconcile DNS. Install the helper once using the command documented in the README.'}
         </p>
       </div>
 
@@ -102,34 +104,43 @@ export function SettingsView() {
       <div className="settings-field">
         <div className="settings-version-row">
           <span>Version {appInfo?.version ?? '…'}</span>
-          <button
-            className="action-button action-secondary action-small"
-            disabled={updateStatus === 'checking' || updateStatus === 'installing'}
-            onClick={() => void checkForUpdates(true)}
-            type="button"
-          >
-            {updateStatus === 'checking' ? 'Checking…' : 'Check for updates'}
-          </button>
-          {availableUpdate && (updateStatus === 'available' || updateStatus === 'error') ? (
-            <button
-              className="action-button action-primary action-small"
-              onClick={() => void installUpdate()}
-              type="button"
-            >
-              Update to {availableUpdate.version}
-            </button>
+          {!isWindows ? (
+            <>
+              <button
+                className="action-button action-secondary action-small"
+                disabled={updateStatus === 'checking' || updateStatus === 'installing'}
+                onClick={() => void checkForUpdates(true)}
+                type="button"
+              >
+                {updateStatus === 'checking' ? 'Checking…' : 'Check for updates'}
+              </button>
+              {availableUpdate && (updateStatus === 'available' || updateStatus === 'error') ? (
+                <button
+                  className="action-button action-primary action-small"
+                  onClick={() => void installUpdate()}
+                  type="button"
+                >
+                  Update to {availableUpdate.version}
+                </button>
+              ) : null}
+            </>
           ) : null}
         </div>
-        {updateStatus === 'up_to_date' ? <p className="settings-hint">OpenWrap is up to date.</p> : null}
-        {updateStatus === 'installing' ? <p className="settings-hint">Installing the update…</p> : null}
-        {updateStatus === 'error' && updateError ? (
+        {!isWindows && updateStatus === 'up_to_date' ? (
+          <p className="settings-hint">OpenWrap is up to date.</p>
+        ) : null}
+        {!isWindows && updateStatus === 'installing' ? (
+          <p className="settings-hint">Installing the update…</p>
+        ) : null}
+        {!isWindows && updateStatus === 'error' && updateError ? (
           <p className="settings-hint error-text">
             {updateError.title}: {updateError.message}
           </p>
         ) : null}
         <p className="settings-hint">
-          OpenWrap checks GitHub for a new version every time it starts. Updates are verified with the
-          project's signing key before they are installed.
+          {isWindows
+            ? 'Automatic updates are not available on Windows yet. Download newer Windows installers from GitHub.'
+            : "OpenWrap checks GitHub for a new version every time it starts. Updates are verified with the project's signing key before they are installed."}
         </p>
       </div>
 

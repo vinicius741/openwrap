@@ -1,4 +1,9 @@
-//! macOS VPN backend selection.
+//! VPN backend selection.
+//!
+//! On Windows (and other non-macOS platforms) OpenWrap launches the OpenVPN
+//! Community binary directly with `DirectOpenVpnBackend`. On Windows that
+//! requires the app to run elevated; the release manifest requests it
+//! (`src-tauri/windows/openwrap.exe.manifest`).
 //!
 //! # Product decision (intentional — do not "fix" in review)
 //!
@@ -20,7 +25,10 @@
 
 use std::sync::Arc;
 
-use openwrap_core::openvpn::{DirectOpenVpnBackend, HelperOpenVpnBackend};
+#[cfg(not(target_os = "macos"))]
+use openwrap_core::openvpn::DirectOpenVpnBackend;
+#[cfg(target_os = "macos")]
+use openwrap_core::openvpn::HelperOpenVpnBackend;
 use openwrap_core::VpnBackend;
 
 pub const INSTALLED_HELPER_PATH: &str =
@@ -36,10 +44,10 @@ pub fn build_backend() -> Arc<dyn VpnBackend> {
                 crate::app_state::network_extension_backend::NetworkExtensionBackend::new(),
             );
         }
-        return Arc::new(HelperOpenVpnBackend::new(resolve_helper_binary()));
+        Arc::new(HelperOpenVpnBackend::new(resolve_helper_binary()))
     }
 
-    #[allow(unreachable_code)]
+    #[cfg(not(target_os = "macos"))]
     Arc::new(DirectOpenVpnBackend::new())
 }
 

@@ -2,6 +2,8 @@
 pub mod macos;
 pub mod model;
 pub mod observer;
+#[cfg(any(windows, test))]
+pub mod windows;
 
 #[cfg(target_os = "macos")]
 pub use macos::append_launch_config as append_macos_launch_dns_config;

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { isWindows } from '../../../lib/platform'
 import type { DnsPolicy, ProfileDetail } from '../../../types/ipc'
 import {
   addDomain,
@@ -27,8 +28,10 @@ const MODES: { policy: DnsPolicy; label: string; hint: string }[] = [
   },
   {
     policy: 'SplitDnsPreferred',
-    label: 'Only listed domains',
-    hint: "Only lookups for the domains below go to the VPN's DNS server. Everything else uses your normal DNS.",
+    label: isWindows ? 'Split DNS (VPN adapter)' : 'Only listed domains',
+    hint: isWindows
+      ? "OpenVPN applies the VPN's DNS servers to the VPN adapter without blocking your normal network's DNS."
+      : "Only lookups for the domains below go to the VPN's DNS server. Everything else uses your normal DNS.",
   },
 ]
 
@@ -70,7 +73,7 @@ export function DnsSettings({
         {activeMode?.hint ?? 'OpenWrap leaves DNS untouched for this profile. Pick a mode to change that.'}
       </p>
 
-      {policy === 'SplitDnsPreferred' && (
+      {policy === 'SplitDnsPreferred' && !isWindows && (
         <DomainList
           domains={profile.profile.dns_match_domains ?? []}
           isUpdating={isUpdating}

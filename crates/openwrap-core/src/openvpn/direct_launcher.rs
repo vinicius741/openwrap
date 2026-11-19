@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::io::ErrorKind;
-use std::process::{Command as ProcessCommand, Stdio};
+#[cfg(not(windows))]
+use std::process::Command as ProcessCommand;
+use std::process::Stdio;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
@@ -14,10 +16,38 @@ use crate::openvpn::backend::{BackendEvent, ConnectRequest, SpawnedSession};
 use crate::openvpn::config_working_dir;
 use crate::VpnBackend;
 
+/// How long OpenVPN gets to tear down routes and DNS after the exit event is
+/// signalled before it is forcibly terminated.
+#[cfg(windows)]
+const WINDOWS_GRACEFUL_EXIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Shorter bounded wait used during application shutdown so OpenVPN can finish
+/// restoring routes and DNS before the process exits and closes the Job Object.
+#[cfg(windows)]
+const WINDOWS_SHUTDOWN_EXIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+// On Windows, disconnect goes through `windows`; `child` is only kept alive.
+#[cfg_attr(windows, allow(dead_code))]
 #[derive(Debug)]
 struct ChildHandle {
     pid: Option<u32>,
     child: Arc<AsyncMutex<Child>>,
+    #[cfg(windows)]
+    windows: WindowsControl,
+}
+
+/// Windows has no SIGTERM: OpenVPN is started with `--service <event> 0` and
+/// stops cleanly once that event is signalled (the same mechanism openvpn-gui
+/// uses when it launches OpenVPN directly). A Job Object with
+/// `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` ensures `openvpn.exe` is also killed
+/// if OpenWrap crashes before a graceful disconnect finishes.
+#[cfg(windows)]
+#[derive(Debug)]
+struct WindowsControl {
+    exit_event: crate::windows::ExitEvent,
+    process: Option<crate::windows::ProcessHandle>,
+    #[allow(dead_code)]
+    job: Option<crate::windows::JobObject>,
 }
 
 #[derive(Debug, Default)]
@@ -33,6 +63,13 @@ impl DirectOpenVpnBackend {
 
 impl VpnBackend for DirectOpenVpnBackend {
     fn connect(&self, request: ConnectRequest) -> Result<SpawnedSession, AppError> {
+        #[cfg(windows)]
+        if !crate::windows::is_elevated() {
+            return Err(AppError::OpenVpnLaunch(
+                "OpenWrap must run as administrator on Windows to start OpenVPN. Close OpenWrap, then right-click it and choose \"Run as administrator\".".into(),
+            ));
+        }
+
         let working_dir = config_working_dir(&request.config_path)?;
         let mut command = Command::new(&request.openvpn_binary);
         command.arg("--config").arg(&request.config_path);
@@ -44,10 +81,48 @@ impl VpnBackend for DirectOpenVpnBackend {
             command.arg("--auth-user-pass").arg(auth_file);
         }
 
+        #[cfg(windows)]
+        let exit_event =
+            crate::windows::ExitEvent::create(format!("openwrap-exit-{}", request.session_id.0))
+                .map_err(|error| {
+                    AppError::OpenVpnLaunch(format!("could not create OpenVPN exit event: {error}"))
+                })?;
+        #[cfg(windows)]
+        {
+            command.arg("--service").arg(exit_event.name()).arg("0");
+            command.creation_flags(crate::windows::CREATE_NO_WINDOW);
+        }
+
         command.stdout(Stdio::piped()).stderr(Stdio::piped());
 
         let mut child = command.spawn().map_err(map_spawn_error)?;
         let pid = child.id();
+        #[cfg(windows)]
+        let windows = {
+            let raw_handle = child.raw_handle();
+            let process = raw_handle
+                .and_then(crate::windows::ProcessHandle::from_raw_handle)
+                .or_else(|| pid.and_then(crate::windows::ProcessHandle::open));
+            let job = raw_handle.and_then(|raw| {
+                let job = match crate::windows::JobObject::create_kill_on_close() {
+                    Ok(job) => job,
+                    Err(error) => {
+                        eprintln!("Warning: could not create OpenVPN job object: {error}");
+                        return None;
+                    }
+                };
+                if let Err(error) = job.assign_raw_handle(raw) {
+                    eprintln!("Warning: could not assign OpenVPN to job object: {error}");
+                    return None;
+                }
+                Some(job)
+            });
+            WindowsControl {
+                exit_event,
+                process,
+                job,
+            }
+        };
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
         let child = Arc::new(AsyncMutex::new(child));
@@ -57,30 +132,32 @@ impl VpnBackend for DirectOpenVpnBackend {
             ChildHandle {
                 pid,
                 child: child.clone(),
+                #[cfg(windows)]
+                windows,
             },
         );
 
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         let _ = event_tx.send(BackendEvent::Started(pid));
-        if let Some(stdout) = stdout {
+        let stdout_task = stdout.map(|stdout| {
             let tx = event_tx.clone();
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stdout).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
                     let _ = tx.send(BackendEvent::Stdout(line));
                 }
-            });
-        }
+            })
+        });
 
-        if let Some(stderr) = stderr {
+        let stderr_task = stderr.map(|stderr| {
             let tx = event_tx.clone();
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stderr).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
                     let _ = tx.send(BackendEvent::Stderr(line));
                 }
-            });
-        }
+            })
+        });
 
         {
             let tx = event_tx.clone();
@@ -90,6 +167,17 @@ impl VpnBackend for DirectOpenVpnBackend {
             tokio::spawn(async move {
                 let status = child.lock().await.wait().await.ok();
                 children.lock().remove(&session_id);
+                // Let stdout/stderr pipes drain final lines (e.g., SIGTERM or
+                // fatal error details) before signalling process exit.
+                let drain = async {
+                    if let Some(task) = stdout_task {
+                        let _ = task.await;
+                    }
+                    if let Some(task) = stderr_task {
+                        let _ = task.await;
+                    }
+                };
+                let _ = tokio::time::timeout(std::time::Duration::from_millis(500), drain).await;
                 let _ = tx.send(BackendEvent::Exited(
                     status.and_then(|status| status.code()),
                 ));
@@ -103,6 +191,36 @@ impl VpnBackend for DirectOpenVpnBackend {
         })
     }
 
+    #[cfg(windows)]
+    fn disconnect(&self, session_id: SessionId) -> Result<(), AppError> {
+        if let Some(handle) = self.children.lock().remove(&session_id) {
+            handle.windows.exit_event.signal();
+            // A plain thread (not tokio::spawn) so disconnect never requires an
+            // entered Tokio runtime. `handle` (including the Job Object) stays
+            // alive until OpenVPN exits cleanly or the grace period expires.
+            std::thread::spawn(move || {
+                if let Some(process) = &handle.windows.process {
+                    process.wait_or_terminate(WINDOWS_GRACEFUL_EXIT_TIMEOUT);
+                }
+                drop(handle);
+            });
+        }
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    fn disconnect_on_shutdown(&self, session_id: SessionId) -> Result<(), AppError> {
+        if let Some(handle) = self.children.lock().remove(&session_id) {
+            handle.windows.exit_event.signal();
+            if let Some(process) = &handle.windows.process {
+                process.wait_or_terminate(WINDOWS_SHUTDOWN_EXIT_TIMEOUT);
+            }
+            drop(handle);
+        }
+        Ok(())
+    }
+
+    #[cfg(not(windows))]
     fn disconnect(&self, session_id: SessionId) -> Result<(), AppError> {
         if let Some(handle) = self.children.lock().remove(&session_id) {
             if let Some(pid) = handle.pid {
@@ -140,7 +258,8 @@ fn map_spawn_error(error: std::io::Error) -> AppError {
     }
 }
 
-#[cfg(test)]
+// These tests drive fake `#!/bin/sh` OpenVPN binaries, so they are Unix-only.
+#[cfg(all(test, unix))]
 mod tests {
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
@@ -275,6 +394,142 @@ mod tests {
         let session_id_for_thread = session_id.clone();
         let handle = std::thread::spawn(move || {
             // Must not panic and must not abort the process.
+            backend_for_thread
+                .disconnect(session_id_for_thread)
+                .expect("disconnect should succeed without a runtime");
+        });
+        handle.join().expect("disconnect thread must not panic");
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::Duration;
+
+    use tempfile::tempdir;
+    use tokio::time::timeout;
+
+    use super::DirectOpenVpnBackend;
+    use crate::connection::SessionId;
+    use crate::openvpn::{BackendEvent, ConnectRequest};
+    use crate::profiles::ProfileId;
+    use crate::VpnBackend;
+
+    #[tokio::test]
+    async fn launches_openvpn_from_config_directory_and_passes_service_flag() {
+        if !crate::windows::is_elevated() {
+            return;
+        }
+
+        let temp = tempdir().unwrap();
+        let profile_dir = temp.path().join("profiles").join("profile 1");
+        let runtime_dir = temp
+            .path()
+            .join("runtime")
+            .join("profile-1")
+            .join("session-1");
+        fs::create_dir_all(&profile_dir).unwrap();
+        fs::create_dir_all(&runtime_dir).unwrap();
+
+        let fake_openvpn = temp.path().join("fake-openvpn.cmd");
+        fs::write(&fake_openvpn, "@echo off\r\ncd\r\necho ARGS:%*\r\n").unwrap();
+
+        let config_path = profile_dir.join("profile.ovpn");
+        fs::write(&config_path, "client\n").unwrap();
+
+        let backend = DirectOpenVpnBackend::new();
+        let spawned = backend
+            .connect(ConnectRequest {
+                session_id: SessionId::new(),
+                profile_id: ProfileId::new(),
+                openvpn_binary: fake_openvpn,
+                config_path,
+                auth_file: None,
+                runtime_dir,
+                dns_policy: crate::dns::DnsPolicy::ObserveOnly,
+                dns_intent: Vec::new(),
+            })
+            .unwrap();
+
+        let mut event_rx = spawned.event_rx;
+        let mut lines = Vec::new();
+        timeout(Duration::from_secs(5), async {
+            while let Some(event) = event_rx.recv().await {
+                match event {
+                    BackendEvent::Stdout(line) => lines.push(line),
+                    BackendEvent::Exited(_) => break,
+                    _ => {}
+                }
+            }
+        })
+        .await
+        .unwrap();
+
+        let cwd = lines
+            .first()
+            .expect("expected working directory line from fake-openvpn.cmd");
+        assert_eq!(
+            PathBuf::from(cwd).canonicalize().unwrap(),
+            profile_dir.canonicalize().unwrap()
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("--service openwrap-exit-") && line.ends_with(" 0")),
+            "expected --service <event> 0 in args, got: {lines:?}"
+        );
+    }
+
+    #[test]
+    fn disconnect_does_not_panic_without_tokio_runtime() {
+        if !crate::windows::is_elevated() {
+            return;
+        }
+
+        let backend = DirectOpenVpnBackend::new();
+        let session_id = SessionId::new();
+
+        let temp = tempdir().unwrap();
+        let profile_dir = temp.path().join("profiles").join("profile-1");
+        let runtime_dir = temp
+            .path()
+            .join("runtime")
+            .join("profile-1")
+            .join("session-1");
+        fs::create_dir_all(&profile_dir).unwrap();
+        fs::create_dir_all(&runtime_dir).unwrap();
+
+        let sleeper = temp.path().join("sleeper.cmd");
+        fs::write(&sleeper, "@echo off\r\nping -n 30 127.0.0.1 >nul\r\n").unwrap();
+
+        let config_path = profile_dir.join("profile.ovpn");
+        fs::write(&config_path, "client\n").unwrap();
+
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(async {
+            backend
+                .connect(ConnectRequest {
+                    session_id: session_id.clone(),
+                    profile_id: ProfileId::new(),
+                    openvpn_binary: sleeper,
+                    config_path,
+                    auth_file: None,
+                    runtime_dir,
+                    dns_policy: crate::dns::DnsPolicy::ObserveOnly,
+                    dns_intent: Vec::new(),
+                })
+                .unwrap();
+        });
+
+        let backend = std::sync::Arc::new(backend);
+        let backend_for_thread = backend.clone();
+        let session_id_for_thread = session_id.clone();
+        let handle = std::thread::spawn(move || {
             backend_for_thread
                 .disconnect(session_id_for_thread)
                 .expect("disconnect should succeed without a runtime");

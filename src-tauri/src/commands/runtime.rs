@@ -1,4 +1,6 @@
-//! Launch dependency installation in Terminal so sudo never passes through IPC.
+//! Launch dependency installation in a visible system window so administrator
+//! credentials never pass through IPC: Terminal + Homebrew on macOS, a winget
+//! console on Windows (the app already runs elevated there).
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -7,10 +9,13 @@ use serde::Serialize;
 use crate::app_state::AppState;
 use crate::error::CommandError;
 
+#[cfg(any(target_os = "macos", all(test, unix)))]
 const INSTALL_SCRIPT: &str = include_str!("../../../scripts/share/install-openvpn.sh");
+#[cfg(target_os = "macos")]
 const REPAIR_SCRIPT: &str = include_str!("../../../scripts/repair-openvpn.sh");
 /// Where Homebrew links OpenVPN; only these installs can be repaired with it.
 const HOMEBREW_PREFIXES: [&str; 2] = ["/opt/homebrew", "/usr/local"];
+#[cfg(target_os = "macos")]
 const TERMINAL_SCRIPT: &str = r#"
 on run argv
     tell application "Terminal"
@@ -47,7 +52,14 @@ fn setup_error(message: impl Into<String>) -> CommandError {
             code: "runtime_install_failed".into(),
             title: "OpenVPN setup did not finish".into(),
             message,
-            suggested_fix: Some("Check the output in Terminal, then try again. Keep the Terminal window open until setup finishes.".into()),
+            suggested_fix: Some(
+                if cfg!(windows) {
+                    "Run \"winget install --id OpenVPNTechnologies.OpenVPN --exact\" in an elevated Command Prompt, or install OpenVPN Community manually from https://openvpn.net/community-downloads/ and restart OpenWrap."
+                } else {
+                    "Check the output in Terminal, then try again. Keep the Terminal window open until setup finishes."
+                }
+                .into(),
+            ),
             details_safe: None,
         },
     }
@@ -102,7 +114,7 @@ pub async fn install_runtime_dependencies(
         if current.openvpn_path.is_some() {
             return Ok(current);
         }
-        run_in_terminal(INSTALL_SCRIPT, override_path.as_deref())?;
+        run_installer(override_path.as_deref())?;
         let installed = detect(override_path);
         if installed.openvpn_path.is_none() {
             return Err(setup_error(
@@ -136,7 +148,7 @@ pub async fn repair_runtime_dependencies(
                 "OpenWrap can only repair an OpenVPN that was installed with Homebrew.",
             ));
         }
-        run_in_terminal(REPAIR_SCRIPT, None)?;
+        run_repair()?;
         let repaired = detect(override_path);
         if repaired.openvpn_version.is_none() {
             return Err(setup_error(
@@ -149,10 +161,12 @@ pub async fn repair_runtime_dependencies(
     .map_err(|error| setup_error(error.to_string()))?
 }
 
+#[cfg(any(target_os = "macos", all(test, unix)))]
 fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
+#[cfg(any(target_os = "macos", all(test, unix)))]
 fn installer_wrapper(script: &str, result_path: &Path) -> String {
     let on_exit = format!(
         "result=$?; printf '%s\\n' \"$result\" > {}; if [ \"$result\" -ne 0 ]; then echo 'OpenVPN setup failed. Review the output above, then retry in OpenWrap.'; fi",
@@ -165,12 +179,120 @@ fn installer_wrapper(script: &str, result_path: &Path) -> String {
     )
 }
 
+#[cfg(windows)]
+fn run_installer(_override_path: Option<&Path>) -> Result<(), CommandError> {
+    use std::os::windows::process::CommandExt;
+
+    let winget = resolve_winget_exe()
+        .ok_or_else(|| setup_error("winget (App Installer) is not available on this PC."))?;
+
+    // CREATE_NEW_CONSOLE: show winget's progress in its own window. The child
+    // inherits OpenWrap's elevated token, so the installer needs no extra prompt.
+    const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
+    let status = std::process::Command::new(winget)
+        .args([
+            "install",
+            "--id",
+            "OpenVPNTechnologies.OpenVPN",
+            "--exact",
+            "--accept-package-agreements",
+            "--accept-source-agreements",
+        ])
+        .creation_flags(CREATE_NEW_CONSOLE)
+        .status()
+        .map_err(|error| match error.kind() {
+            std::io::ErrorKind::NotFound => {
+                setup_error("winget (App Installer) is not available on this PC.")
+            }
+            _ => setup_error(error.to_string()),
+        })?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(setup_error(
+            "The OpenVPN installer failed or was cancelled.",
+        ))
+    }
+}
+
+#[cfg(windows)]
+fn resolve_winget_exe() -> Option<PathBuf> {
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(Path::to_path_buf));
+    let mut dirs = Vec::new();
+    if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
+        dirs.push(
+            PathBuf::from(local_app_data)
+                .join("Microsoft")
+                .join("WindowsApps"),
+        );
+    }
+    if let Some(path_env) = std::env::var_os("PATH") {
+        dirs.extend(std::env::split_paths(&path_env));
+    }
+    resolve_winget_in_dirs(dirs, exe_dir.as_deref())
+}
+
+#[cfg(any(windows, test))]
+fn resolve_winget_in_dirs(
+    dirs: impl IntoIterator<Item = PathBuf>,
+    excluded_dir: Option<&Path>,
+) -> Option<PathBuf> {
+    let excluded_norm = excluded_dir.map(normalize_dir_for_compare);
+    for dir in dirs {
+        if !dir.is_absolute() {
+            continue;
+        }
+        if let Some(excluded) = &excluded_norm {
+            if normalize_dir_for_compare(&dir) == *excluded {
+                continue;
+            }
+        }
+        let candidate = dir.join("winget.exe");
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+#[cfg(any(windows, test))]
+fn normalize_dir_for_compare(path: &Path) -> String {
+    path.to_string_lossy()
+        .replace('/', "\\")
+        .trim_end_matches('\\')
+        .to_ascii_lowercase()
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
+fn run_installer(_override_path: Option<&Path>) -> Result<(), CommandError> {
+    Err(setup_error(
+        "Automatic installation is available on macOS and Windows.",
+    ))
+}
+
+#[cfg(target_os = "macos")]
+fn run_installer(override_path: Option<&Path>) -> Result<(), CommandError> {
+    run_in_terminal(INSTALL_SCRIPT, override_path)
+}
+
+#[cfg(target_os = "macos")]
+fn run_repair() -> Result<(), CommandError> {
+    run_in_terminal(REPAIR_SCRIPT, None)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn run_repair() -> Result<(), CommandError> {
+    Err(setup_error(
+        "OpenWrap can only repair an OpenVPN that was installed with Homebrew.",
+    ))
+}
+
 /// Runs `script` in a Terminal window, passing `argument` as its first
 /// argument, and waits for it to finish.
+#[cfg(target_os = "macos")]
 fn run_in_terminal(script: &str, argument: Option<&Path>) -> Result<(), CommandError> {
-    if !cfg!(target_os = "macos") {
-        return Err(setup_error("Automatic installation is available on macOS."));
-    }
     // A private directory prevents another user from replacing the script or result.
     let dir = tempfile::Builder::new()
         .prefix("openwrap-setup-")
@@ -203,7 +325,8 @@ fn run_in_terminal(script: &str, argument: Option<&Path>) -> Result<(), CommandE
     }
 }
 
-#[cfg(test)]
+// These tests run the macOS installer wrapper through /bin/bash.
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
@@ -305,5 +428,31 @@ mod tests {
         );
         assert_eq!(std::fs::read_to_string(result_path).unwrap().trim(), "0");
         assert!(String::from_utf8_lossy(&output.stdout).contains("OpenVPN is ready"));
+    }
+}
+
+#[cfg(test)]
+mod winget_resolution_tests {
+    use std::path::PathBuf;
+
+    use super::resolve_winget_in_dirs;
+
+    #[test]
+    fn skips_relative_and_application_directories() {
+        let temp = tempfile::tempdir().unwrap();
+        let app_dir = temp.path().join("app");
+        let system_dir = temp.path().join("windows-apps");
+        std::fs::create_dir_all(&app_dir).unwrap();
+        std::fs::create_dir_all(&system_dir).unwrap();
+
+        std::fs::write(app_dir.join("winget.exe"), b"planted").unwrap();
+        let expected = system_dir.join("winget.exe");
+        std::fs::write(&expected, b"real").unwrap();
+
+        let resolved = resolve_winget_in_dirs(
+            [PathBuf::from("."), app_dir.clone(), system_dir],
+            Some(&app_dir),
+        );
+        assert_eq!(resolved, Some(expected));
     }
 }

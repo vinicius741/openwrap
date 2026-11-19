@@ -3,8 +3,11 @@ import { spawnSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
-import { test } from 'node:test'
+import { test as baseTest } from 'node:test'
 import { fileURLToPath } from 'node:url'
+
+// The installer is a macOS bash script; there is no /bin/bash on Windows.
+const test = process.platform === 'win32' ? baseTest.skip : baseTest
 
 const installer = fileURLToPath(new URL('../scripts/share/install-openvpn.sh', import.meta.url))
 

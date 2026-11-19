@@ -3,6 +3,21 @@ use chrono::Utc;
 use crate::connection::session::{LogEntry, LogLevel};
 use crate::errors::UserFacingError;
 
+const PERMISSION_FAILURE_PATTERNS: &[&str] = &[
+    "cannot open tun/tap dev",
+    "operation not permitted",
+    "route addition failed",
+    "permission denied",
+    "failed to create wintun adapter",
+    "createfile failed on tap device",
+    "createfile failed on ovpn-dco device",
+    "all tap-windows6 adapters on this system are currently in use",
+    "all ovpn-dco adapters on this system are currently in use",
+    "windows route add command failed",
+    "createipforwardentry",
+    "flushipnettable failed",
+];
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParsedLogSignal {
     Connected,
@@ -146,15 +161,7 @@ pub fn diagnose_exit_error<'a>(
             ),
             details_safe,
         })
-    } else if contains_any(
-        &detail,
-        &[
-            "cannot open tun/tap dev",
-            "operation not permitted",
-            "route addition failed",
-            "permission denied",
-        ],
-    ) {
+    } else if contains_any(&detail, PERMISSION_FAILURE_PATTERNS) {
         Some(UserFacingError {
             code: "openvpn_permission_failed".into(),
             title: "OpenVPN lacked system permissions".into(),
@@ -163,8 +170,12 @@ pub fn diagnose_exit_error<'a>(
                 "OpenVPN started but could not configure the tunnel or routes.",
             ),
             suggested_fix: Some(
-                "Verify the privileged helper setup and check that OpenWrap has the required macOS permissions."
-                    .into(),
+                if cfg!(windows) {
+                    "Close OpenWrap and run it as administrator, close any other active OpenVPN connection, and confirm OpenVPN's DCO or TAP network driver is installed."
+                } else {
+                    "Verify the privileged helper setup and check that OpenWrap has the required macOS permissions."
+                }
+                .into(),
             ),
             details_safe,
         })
@@ -270,15 +281,7 @@ fn error_classification(line: &str) -> Option<(LogLevel, &'static str)> {
         ],
     ) {
         Some((LogLevel::Error, "tls_error"))
-    } else if contains_any(
-        line,
-        &[
-            "cannot open tun/tap dev",
-            "operation not permitted",
-            "route addition failed",
-            "permission denied",
-        ],
-    ) {
+    } else if contains_any(line, PERMISSION_FAILURE_PATTERNS) {
         Some((LogLevel::Error, "permission_error"))
     } else if contains_any(
         line,
@@ -470,5 +473,29 @@ mod tests {
             .details_safe
             .as_deref()
             .is_some_and(|detail| detail.contains("profile path was rejected by policy")));
+    }
+
+    #[test]
+    fn classifies_and_diagnoses_ovpn_dco_driver_errors_consistently() {
+        let entry = sanitize_log(
+            "stderr",
+            "CreateFile failed on ovpn-dco device: \\\\.\\Global\\{guid}.ovpn-dco",
+        );
+        assert_eq!(entry.level, LogLevel::Error);
+        assert_eq!(entry.classification, "permission_error");
+
+        let logs = [entry];
+        let error = diagnose_exit_error(Some(1), logs.iter()).expect("expected diagnosis");
+        assert_eq!(error.code, "openvpn_permission_failed");
+    }
+
+    #[test]
+    fn does_not_misclassify_unrelated_access_denied_as_tunnel_permission_error() {
+        let entry = sanitize_log("stderr", "Cannot open file ca.crt: Access is denied");
+        assert_ne!(entry.classification, "permission_error");
+
+        let logs = [entry];
+        let error = diagnose_exit_error(Some(1), logs.iter()).expect("expected diagnosis");
+        assert_eq!(error.code, "process_exit");
     }
 }

@@ -74,8 +74,12 @@ fn update_error(title: &str, error: impl std::fmt::Display) -> CommandError {
             title: title.into(),
             message,
             suggested_fix: Some(
-                "Check your internet connection, or download the latest OpenWrap-Share.zip from the GitHub releases page."
-                    .into(),
+                if cfg!(windows) {
+                    "Check your internet connection, or download the latest Windows installer from the GitHub releases page."
+                } else {
+                    "Check your internet connection, or download the latest OpenWrap-Share.zip from the GitHub releases page."
+                }
+                .into(),
             ),
             details_safe: None,
         },

@@ -265,7 +265,9 @@ impl ConnectionManager {
 
         if let Some(session) = session {
             crate::connection::manager::cleanup_auth_file(&session);
-            let _ = self.backend.disconnect(session.session_id.clone());
+            let _ = self
+                .backend
+                .disconnect_on_shutdown(session.session_id.clone());
             crate::connection::manager::cleanup_runtime_artifacts(&session);
         }
 

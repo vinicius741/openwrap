@@ -1,6 +1,7 @@
 pub mod backend_factory;
 #[cfg(target_os = "macos")]
 pub mod network_extension_backend;
+#[cfg(target_os = "macos")]
 mod startup;
 
 pub use backend_factory::build_backend;
@@ -44,6 +45,9 @@ impl AppState {
         if let Err(error) = startup::reconcile_dns(&backend, &paths) {
             eprintln!("Warning: DNS reconciliation failed (continuing anyway): {error}");
         }
+
+        #[cfg(windows)]
+        openwrap_core::connection::manager::sweep_stale_runtime_dir(&paths.runtime_dir);
 
         let connection_manager = Arc::new(ConnectionManager::new(
             paths.clone(),

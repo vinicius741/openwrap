@@ -8,8 +8,11 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
-import { test } from 'node:test'
+import { test as baseTest } from 'node:test'
 import { fileURLToPath } from 'node:url'
+
+// scripts/repair-openvpn.sh is the macOS Homebrew repair script; skip on Windows.
+const test = process.platform === 'win32' ? baseTest.skip : baseTest
 
 const script = fileURLToPath(new URL('../scripts/repair-openvpn.sh', import.meta.url))
 

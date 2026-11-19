@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 
+import { isWindows } from '../../lib/platform'
 import { useAppStore } from '../../store/appStore'
 
 interface RuntimeSetupProps {
@@ -34,17 +35,23 @@ export function RuntimeSetup({ afterFailure = false }: RuntimeSetupProps) {
           </p>
         ) : status === 'installing' ? (
           <p className="settings-hint">
-            Complete setup in Terminal. Enter your Mac password when asked and keep the window open until
-            installation finishes.
+            {isWindows
+              ? 'Complete setup in the installer window and keep it open until installation finishes.'
+              : 'Complete setup in Terminal. Enter your Mac password when asked and keep the window open until installation finishes.'}
           </p>
         ) : broken ? (
           <>
-            <p>OpenVPN is installed but cannot start. This usually happens after a Homebrew update.</p>
+            <p>
+              {isWindows
+                ? 'OpenVPN is installed but cannot start.'
+                : 'OpenVPN is installed but cannot start. This usually happens after a Homebrew update.'}
+            </p>
             <p className="helper-reason">{dependencies?.openvpn_problem}</p>
             {!canRepair ? (
               <p className="settings-hint">
-                This OpenVPN was not installed with Homebrew, so OpenWrap cannot repair it. Reinstall it, then
-                check again.
+                {isWindows
+                  ? 'Reinstall OpenVPN Community, then check again.'
+                  : 'This OpenVPN was not installed with Homebrew, so OpenWrap cannot repair it. Reinstall it, then check again.'}
               </p>
             ) : null}
           </>
@@ -64,8 +71,9 @@ export function RuntimeSetup({ afterFailure = false }: RuntimeSetupProps) {
           </>
         ) : (
           <p className="settings-hint">
-            Install OpenVPN and, if needed, Homebrew. Setup opens Terminal and asks for your Mac administrator
-            password. It may take several minutes.
+            {isWindows
+              ? 'Install OpenVPN Community with winget. Setup opens a console window and may take several minutes.'
+              : 'Install OpenVPN and, if needed, Homebrew. Setup opens Terminal and asks for your Mac administrator password. It may take several minutes.'}
           </p>
         )}
       </div>
@@ -122,12 +130,18 @@ export function OpenVpnBrokenBanner() {
       <div className="error-banner-copy">
         <strong>OpenVPN stopped working</strong>
         <p>
-          OpenVPN is installed but cannot start, which usually happens after a Homebrew update.{' '}
-          {repairing
-            ? 'Homebrew is updating it in Terminal. Keep the window open until it finishes.'
-            : canRepair
-              ? 'Repairing updates it with Homebrew in Terminal, which may also update related packages.'
-              : 'It was not installed with Homebrew, so reinstall it to connect again.'}
+          {isWindows ? (
+            'OpenVPN is installed but cannot start. Reinstall OpenVPN Community to connect again.'
+          ) : (
+            <>
+              OpenVPN is installed but cannot start, which usually happens after a Homebrew update.{' '}
+              {repairing
+                ? 'Homebrew is updating it in Terminal. Keep the window open until it finishes.'
+                : canRepair
+                  ? 'Repairing updates it with Homebrew in Terminal, which may also update related packages.'
+                  : 'It was not installed with Homebrew, so reinstall it to connect again.'}
+            </>
+          )}
         </p>
         <p className="helper-reason">{dependencies?.openvpn_problem}</p>
         {error ? <p className="error-text" role="alert">{error.message} {error.suggested_fix}</p> : null}

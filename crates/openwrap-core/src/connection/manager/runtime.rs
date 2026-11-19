@@ -19,7 +19,14 @@ pub fn prepare_runtime_dir(
 ) -> Result<PathBuf, AppError> {
     let profile_dir = paths.runtime_dir.join(profile_id.to_string());
     if profile_dir.exists() {
+        #[cfg(not(windows))]
         fs::remove_dir_all(&profile_dir)?;
+
+        #[cfg(windows)]
+        // Best-effort cleanup of stale session directories. On Windows a
+        // recently terminated OpenVPN process can briefly keep its previous
+        // session directory locked as CWD, which must not block a new session.
+        sweep_directory_entries(&profile_dir);
     }
 
     let runtime_dir = profile_dir.join(session_id.to_string());
@@ -27,6 +34,27 @@ pub fn prepare_runtime_dir(
     tighten_dir_permissions(&profile_dir)?;
     tighten_dir_permissions(&runtime_dir)?;
     Ok(runtime_dir)
+}
+
+#[cfg(any(windows, test))]
+pub fn sweep_stale_runtime_dir(runtime_root: &Path) {
+    if runtime_root.exists() {
+        sweep_directory_entries(runtime_root);
+    }
+}
+
+#[cfg(any(windows, test))]
+fn sweep_directory_entries(dir: &Path) {
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                let _ = fs::remove_dir_all(path);
+            } else {
+                let _ = fs::remove_file(path);
+            }
+        }
+    }
 }
 
 pub fn write_auth_file(
@@ -99,6 +127,11 @@ pub fn write_launch_config(
     } else {
         Vec::new()
     };
+
+    #[cfg(windows)]
+    if backend_mode == VpnBackendMode::ExternalProcess {
+        crate::dns::windows::apply_launch_config(&mut launch_config, &detail.profile.dns_policy);
+    }
 
     #[cfg(not(target_os = "macos"))]
     let extra_cleanup_paths = Vec::new();
@@ -187,4 +220,28 @@ pub fn tighten_file_permissions(_path: &Path) -> Result<(), AppError> {
 #[cfg(not(unix))]
 pub fn tighten_dir_permissions(_path: &Path) -> Result<(), AppError> {
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use tempfile::tempdir;
+
+    use super::sweep_stale_runtime_dir;
+
+    #[test]
+    fn sweep_stale_runtime_dir_removes_leftover_session_auth_files() {
+        let temp = tempdir().unwrap();
+        let runtime_root = temp.path().join("runtime");
+        let stale_session = runtime_root.join("profile-1").join("session-1");
+        fs::create_dir_all(&stale_session).unwrap();
+        fs::write(stale_session.join("auth.txt"), "user\npass\n").unwrap();
+        fs::write(stale_session.join("profile.ovpn"), "client\n").unwrap();
+
+        sweep_stale_runtime_dir(&runtime_root);
+
+        assert!(runtime_root.exists());
+        assert_eq!(fs::read_dir(&runtime_root).unwrap().count(), 0);
+    }
 }

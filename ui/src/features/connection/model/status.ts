@@ -1,3 +1,4 @@
+import { isWindows } from '../../../lib/platform'
 import type { ConnectionSnapshot, DnsObservation } from '../../../types/ipc'
 
 /** True while a session exists whose DNS setup was fixed when it started. */
@@ -38,6 +39,9 @@ export function getDnsStatusMessage(observation: DnsObservation | undefined): st
   }
 
   if (observation.effective_mode === 'ScopedResolvers') {
+    if (isWindows) {
+      return 'OpenVPN applies the VPN DNS servers to the VPN adapter while keeping your normal network DNS available.'
+    }
     // The backend reports this case as a warning that starts with this text.
     const missingDomains = observation.warnings.find((warning) =>
       warning.startsWith('No VPN domains are listed'),

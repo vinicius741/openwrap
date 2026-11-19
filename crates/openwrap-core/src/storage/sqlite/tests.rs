@@ -23,6 +23,7 @@ fn clearing_last_selected_profile_removes_the_setting_row() {
     repository.set_last_selected_profile(None).unwrap();
     assert_eq!(repository.get_last_selected_profile().unwrap(), None);
 
+    drop(repository);
     fs::remove_file(db_path).unwrap();
 }
 
@@ -93,6 +94,7 @@ fn listed_dns_domains_round_trip_and_reject_invalid_entries() {
         vec!["bmwgroup.net", "bmw.com"]
     );
 
+    drop(repository);
     fs::remove_file(db_path).unwrap();
 }
 
@@ -159,5 +161,6 @@ fn upgrading_moves_split_dns_profiles_to_full_override_only_once() {
         crate::dns::DnsPolicy::SplitDnsPreferred
     );
 
+    drop(repository);
     fs::remove_file(db_path).unwrap();
 }

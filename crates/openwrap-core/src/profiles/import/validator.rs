@@ -10,7 +10,12 @@ pub fn validate_directives(parsed: &ParsedProfile) -> Vec<ValidationFinding> {
                 severity: ValidationSeverity::Error,
                 directive: directive.name.clone(),
                 line: directive.line,
-                message: "auth-user-pass file paths are blocked in v1; use Keychain-backed prompts instead.".into(),
+                message: if cfg!(windows) {
+                    "auth-user-pass file paths are blocked in v1; use Credential Manager-backed prompts instead."
+                } else {
+                    "auth-user-pass file paths are blocked in v1; use Keychain-backed prompts instead."
+                }
+                .into(),
                 action: ValidationAction::Block,
             });
             continue;

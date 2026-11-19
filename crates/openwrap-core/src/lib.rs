@@ -8,6 +8,8 @@ pub mod openvpn;
 pub mod profiles;
 pub mod secrets;
 pub mod storage;
+#[cfg(windows)]
+pub mod windows;
 
 pub use app_state::AppPaths;
 pub use connection::{ConnectionManager, CoreEvent};
@@ -38,6 +40,15 @@ pub trait VpnBackend: Send + Sync {
     ) -> Result<openvpn::SpawnedSession, errors::AppError>;
 
     fn disconnect(&self, session_id: connection::SessionId) -> Result<(), errors::AppError>;
+
+    /// Synchronous disconnect used during application shutdown so backends can
+    /// briefly wait for graceful teardown before the process exits.
+    fn disconnect_on_shutdown(
+        &self,
+        session_id: connection::SessionId,
+    ) -> Result<(), errors::AppError> {
+        self.disconnect(session_id)
+    }
 
     fn reconcile_dns(
         &self,

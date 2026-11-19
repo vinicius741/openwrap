@@ -1,5 +1,3 @@
-use std::process::Command;
-
 use serde::Deserialize;
 
 use crate::app_state::AppState;
@@ -83,10 +81,5 @@ pub fn reveal_connection_log_in_finder(
         )));
     }
 
-    Command::new("/usr/bin/open")
-        .arg("-R")
-        .arg(log_path)
-        .status()
-        .map_err(|error| CommandError::from(openwrap_core::AppError::Io(error)))?;
-    Ok(())
+    super::reveal::reveal_in_file_manager(&log_path)
 }

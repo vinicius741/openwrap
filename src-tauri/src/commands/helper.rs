@@ -126,7 +126,7 @@ fn install_bundled_helper(_app: &AppHandle) -> Result<Option<AppInfo>, CommandEr
     ))
 }
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", all(test, unix)))]
 fn helper_install_command(bundled: &std::path::Path) -> Result<String, CommandError> {
     use crate::app_state::backend_factory::INSTALLED_HELPER_PATH;
 
@@ -143,7 +143,8 @@ fn helper_install_command(bundled: &std::path::Path) -> Result<String, CommandEr
     ))
 }
 
-#[cfg(test)]
+// These tests run the macOS helper install command through /bin/sh.
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 

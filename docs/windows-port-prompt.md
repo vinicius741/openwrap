@@ -1,83 +1,82 @@
-# Prompt: suporte a Windows no OpenWrap
+# Prompt: finish and validate Windows support (handoff)
 
-> Para quem tem uma máquina Windows e quer portar o OpenWrap. Clone o repositório
-> (`https://github.com/vinicius741/openwrap`), abra o Claude Code / Codex na raiz
-> e cole o bloco abaixo (ou diga: "Leia `docs/windows-port-prompt.md` e siga o prompt").
+> For a contributor with a Windows PC. The maintainer started Windows support on
+> a Linux machine without Windows, so nothing has run on real Windows yet. Paste
+> the block below into Claude Code / Codex running on the Windows machine, from
+> an empty folder (the agent clones the repo itself).
 
 ---
 
-Você vai adicionar suporte a **Windows** ao OpenWrap, um cliente desktop de perfis OpenVPN feito em Tauri 2 (React em `ui/`, Rust em `src-tauri/` e `crates/`). Hoje ele só funciona no macOS. Estou numa máquina Windows e posso rodar e testar tudo de verdade aqui.
+You are finishing **Windows support** for OpenWrap, a Tauri 2 desktop client for OpenVPN profiles (React in `ui/`, Rust in `src-tauri/` and `crates/`). The repository is `https://github.com/vinicius741/openwrap`, and it belongs to another person (the maintainer). I am a contributor using **my own GitHub account**, which cannot push to that repository. You are running on my Windows PC and can build, run, and test everything here for real.
 
-## Antes de escrever código
+The code is already written. It lives on branch **`feat/windows-support`**, with draft PR **https://github.com/vinicius741/openwrap/pull/5**. It was only compile-checked (cross-compiled from Linux), never run on Windows. Your job is to run it, find and fix what breaks, and hand the result back as a pull request.
 
-1. Leia `CLAUDE.md`, `AGENTS.md`, `docs/architecture.md` e `docs/security-model.md`.
-2. Confirme as observações abaixo lendo o código: elas vieram de uma análise feita no macOS, sem um Windows para testar. Se algo estiver errado, me diga.
-3. Me mostre um plano curto da Fase 0 + Fase 1 e espere meu OK antes de começar. Pare e me consulte de novo ao fim de cada fase.
+## 1. Git and PR workflow (my account, not the maintainer's)
 
-## Regras que não podem ser quebradas
+1. Check `gh auth status`. If I am not logged in, ask me to run `gh auth login`. Make sure `git config user.name` / `user.email` are mine. Never commit as the maintainer.
+2. Fork and clone, then base your work on the maintainer's branch:
+   ```powershell
+   gh repo fork vinicius741/openwrap --clone --remote
+   cd openwrap
+   git fetch upstream feat/windows-support
+   git switch -c windows-validation upstream/feat/windows-support
+   ```
+3. Make small, focused commits (one fix per commit, conventional prefixes such as `fix(windows): ...`). Push to my fork: `git push -u origin windows-validation`.
+4. Open the PR **against the maintainer's feature branch**, not `main`:
+   ```powershell
+   gh pr create --repo vinicius741/openwrap --base feat/windows-support --head <my-github-user>:windows-validation --draft
+   ```
+   In the body, reference PR #5 ("Follow-up to #5") and include the validation report from section 6. The maintainer merges it into `feat/windows-support`, and PR #5 picks up the commits.
+5. Push as you go so the maintainer can see progress. Do **not** push to `main` or close or modify PR #5 itself.
 
-- **O comportamento no macOS não pode mudar.** Todo código novo de Windows fica atrás de `#[cfg(windows)]` / `#[cfg(target_os = "windows")]`, e o que for de macOS continua atrás dos `cfg` atuais. Não remova o helper setuid nem o backend de Packet Tunnel.
-- **Projeto hobby, sem custo:** nada que exija certificado pago de code signing. Um build sem assinatura (com aviso do SmartScreen) é aceitável.
-- **Modelo de segurança:** `.ovpn` importado é entrada não confiável (a allowlist em `crates/openwrap-core/src/config/policy.rs` continua valendo); senhas **nunca** são persistidas, só o username; o arquivo temporário de auth precisa ser apagado depois do uso; os logs enviados à UI são sanitizados.
-- Siga as convenções do repositório (nomes de arquivo, estilo, densidade de comentários). Use as traits `VpnBackend` e `SecretStore` (em `crates/openwrap-core/src/lib.rs`) como pontos de extensão em vez de espalhar `if windows` pelo core.
-- Trabalhe numa branch própria (ex.: `feat/windows-support`), com commits pequenos por etapa.
+## 2. Read first
 
-## Pré-requisitos na máquina
+`CLAUDE.md`, `AGENTS.md`, `docs/windows-setup.md` (describes the intended Windows design), `docs/security-model.md`. Then inspect the Windows code: `git diff main...HEAD`, especially:
+- `crates/openwrap-core/src/windows.rs`: Win32 wrappers (elevation check, named exit event, process handle, registry lookup)
+- `crates/openwrap-core/src/openvpn/direct_launcher.rs`: launch with `--service <event> 0`, `CREATE_NO_WINDOW`, graceful disconnect
+- `crates/openwrap-core/src/dns/windows.rs`, `dns/observer.rs`: DNS policy mapping
+- `crates/openwrap-core/src/secrets/keychain.rs`: Windows Credential Manager store
+- `src-tauri/build.rs`, `src-tauri/windows/openwrap.exe.manifest`, `src-tauri/tauri.windows.conf.json`
+- `src-tauri/src/commands/{reveal.rs,runtime.rs}`
 
-- Rust stable (MSVC), Node 22, `cargo install tauri-cli --version "^2.0.0" --locked`, WebView2 (já vem no Windows 11).
-- **OpenVPN Community 2.6+** instalado (https://openvpn.net/community-downloads/) com o **Interactive Service** e o driver (Wintun/DCO). O executável costuma ficar em `C:\Program Files\OpenVPN\bin\openvpn.exe`.
-- Um perfil `.ovpn` de teste que funcione (ex.: o da empresa, ou um servidor de teste).
+## 3. Rules that cannot be broken
 
-## O que a análise encontrou (verifique)
+- **macOS behavior must not change.** Windows code stays behind `#[cfg(windows)]`. Do not remove or alter the setuid helper or the Packet Tunnel backend. The macOS CI job must stay green. Avoid touching shared code. If you must, keep macOS behavior byte-for-byte identical and explain why in the commit.
+- **Hobby project, no costs:** no paid code-signing certificate. An unsigned build with a SmartScreen warning is fine.
+- **Security model:** imported `.ovpn` files are untrusted (the allowlist in `crates/openwrap-core/src/config/policy.rs` still applies). Passwords are **never** persisted, only usernames. The temporary auth file must be deleted after use. Logs sent to the UI are sanitized.
+- Scope: make the **run-as-administrator** design work well. Do **not** implement the Interactive Service / management-interface backend or Windows release packaging (`release.yml`, `latest.json`) unless I explicitly ask. List them as follow-ups instead.
+- Follow repo conventions (file naming, style, comment density). Run `cargo fmt` only on files you touch.
 
-| Área | Hoje | O que fazer no Windows |
-|---|---|---|
-| Build | `crates/openwrap-helper` usa `std::os::unix`, `libc::getpwuid_r`, `tokio::signal::unix` sem `cfg`; o `beforeBuildCommand` do `src-tauri/tauri.conf.json` compila o helper e `bundle.resources` o empacota. O workspace provavelmente **não compila** no Windows. | Isolar o helper para unix (cfg no crate ou stub de `main` para não-unix) e ajustar build/resources do Tauri por plataforma (ex.: `tauri.windows.conf.json`). |
-| Backend | `src-tauri/src/app_state/backend_factory.rs` escolhe o helper setuid no macOS e cai no `DirectOpenVpnBackend` nas outras plataformas. | Fase 1: `DirectOpenVpnBackend` com o app rodando como admin. Fase 2: novo backend pelo Interactive Service. |
-| Disconnect | `helper_launcher.rs` e `direct_launcher.rs` rodam `/bin/kill -TERM <pid>`. | O Windows não tem SIGTERM. `TerminateProcess` (`child.start_kill()`) mata sem limpar rotas e DNS. Encerramento gracioso: `signal SIGTERM` pela management interface (Fase 2). |
-| DNS | Scripts shell de macOS (`crates/openwrap-core/src/dns/macos/`) são injetados via `route-up`/`down` em `connection/manager/runtime.rs`, só com `cfg(target_os = "macos")`; o reconcile de DNS no startup também é só macOS. | **Não** portar os scripts. No Windows o próprio OpenVPN aplica `dhcp-option DNS` / a diretiva `dns` (split DNS via NRPT) pelo Interactive Service. Mapear `DnsPolicy` para isso e ajustar `default_effective_mode` em `dns/observer.rs` (hoje vira `ObserveOnly` fora do macOS). |
-| Segredos | `secrets/keychain.rs` usa `security-framework`; fora do macOS o stub devolve erro, então "lembrar usuário" quebra. | Implementar com o Windows Credential Manager (crate `keyring` ou `windows`/`CredWriteW`), mantendo o service name `app.openwrap.credentials`. |
-| Detecção do OpenVPN | `openvpn/runtime.rs` só procura caminhos do Homebrew/Linux. | Adicionar `C:\Program Files\OpenVPN\bin\openvpn.exe` (e ler o caminho de instalação do registro `HKLM\SOFTWARE\OpenVPN`, se for simples). |
-| Pasta de dados | `src-tauri/src/lib.rs` usa `dirs::data_local_dir()/OpenWrap`, que vira `%LOCALAPPDATA%\OpenWrap`. Só o helper fixa `Library/Application Support`. | Provavelmente nada. Testar com nome de usuário **com espaço** (o `quote_openvpn_arg` escapa `\` e espaço). |
-| Permissões | `0o600`/`0o700` atrás de `cfg(unix)` em `runtime.rs` e `secrets/local_db.rs`, com fallback no-op. | Aceitável para o MVP (`%LOCALAPPDATA%` já tem ACL por usuário). Opcional: endurecer a ACL do arquivo de auth. |
-| Revelar logs | `src-tauri/src/commands/logs.rs` chama `/usr/bin/open`. | Adicionar o `tauri-plugin-opener` ou usar `explorer /select,`. |
-| Updates | `src-tauri/src/commands/updates.rs` compara e instala o helper com `sudo install`. | No Windows, reportar o helper como não aplicável e esconder o comando de reinstalação na UI. |
-| Policy | Allowlist em `config/policy.rs`. | Avaliar liberar `block-outside-dns`, `windows-driver`, `dns`. `management` continua bloqueado no perfil importado: o app adiciona a própria diretiva na config gerada. |
-| UI | Textos citam "Finder", "Keychain", "macOS may ask for your password" (`ui/src/features/...`). | Textos por plataforma. Expor a plataforma via comando IPC ou `@tauri-apps/plugin-os`. |
-| Testes | Testes do helper e do `direct_launcher` usam `std::os::unix::fs::PermissionsExt`. | Pôr `cfg(unix)` onde preciso para `cargo test -p openwrap-core -p openwrap-app` passar no Windows. |
+## 4. Prerequisites on this machine (check, and tell me what's missing)
 
-## Fases
+- Rust stable with MSVC (Visual Studio Build Tools, "Desktop development with C++"), Node 22, `cargo install tauri-cli --version "^2.0.0" --locked`, WebView2.
+- OpenVPN Community 2.6+ (`winget install --id OpenVPNTechnologies.OpenVPN --exact`), installed with default options.
+- A working `.ovpn` test profile. **Ask me for one.** Never commit it, and never paste credentials into logs, commits, or the PR.
+- An **elevated** PowerShell (Run as administrator). The app manifest requires elevation, so `npm run tauri:dev` from a normal terminal fails with os error 740.
 
-### Fase 0: compilar no Windows
-- `cargo check -p openwrap-core -p openwrap-app` e `cargo test -p openwrap-core` passando no Windows.
-- `npm install`, `npm test` e `npm run tauri:dev` abrindo a janela.
+## 5. Validation checklist (fix what fails, re-test, and record evidence)
 
-### Fase 1: MVP rodando como administrador
-- Detecção do `openvpn.exe`, `DirectOpenVpnBackend` no Windows, DNS delegado ao OpenVPN, Credential Manager, revelar logs, textos da UI e status do helper.
-- Disconnect: o melhor possível sem management (documente a limitação).
-- O app precisa rodar elevado. Escolha entre exigir "Executar como administrador" ou embutir um manifesto `requireAdministrator`, e me explique o trade-off (UAC a cada abertura, autostart).
+Build and tests:
+1. `npm install`, `npm test`, `cargo test -p openwrap-core -p openwrap-app` all pass. Also check whether `cargo test` works from a **non-elevated** terminal. If the admin manifest leaks into test binaries (error 740), fix `build.rs` so it applies only to the app binary.
+2. `npm run tauri:dev` opens the window (from an elevated terminal). `npx @tauri-apps/cli@2 build --bundles nsis` produces an installer.
 
-### Fase 2: sem admin, via Interactive Service (a versão "certa")
-- Novo `VpnBackend` que inicia o OpenVPN pelo named pipe do Interactive Service (`\\.\pipe\openvpn\service`, em instalações padrão). A mensagem de startup é UTF-16 com três campos terminados em NUL: working dir, linha de opções, dados de stdin. O serviço responde com código de erro e PID. **Confirme o protocolo no código-fonte do openvpn-gui** (`openvpn.c`, função de start via serviço) e do `openvpnserv` antes de implementar. Não confie só nesta descrição.
-- Como não há stdout, use a **management interface** (`--management 127.0.0.1 <porta> <arquivo-de-senha>`, `--management-hold`, `--management-query-passwords`) para: logs (`log on all`), estado (`state on`), envio de usuário/senha (sem gravar em disco) e disconnect gracioso (`signal SIGTERM`). Gere porta e senha aleatórias por sessão.
-- Os logs e estados precisam chegar ao `ConnectionManager` no mesmo formato de `BackendEvent` usado hoje, para o `log_parser.rs` e a máquina de estados seguirem iguais.
-- Risco conhecido: o Interactive Service restringe opções quando a config não está no diretório de config global e o usuário não está no grupo **"OpenVPN Administrators"**. Investigue e documente o que o usuário precisa fazer.
+Connection (the important part):
+3. Import a `.ovpn` file and connect. The state reaches **Connected**, and OpenVPN logs appear live in the UI. **Verify stdout logs still arrive when OpenVPN runs with `--service`.** If not, report the cause and propose a fix (for example `--log` to a file that is tailed).
+4. Graceful disconnect. Capture `route print -4`, `Get-DnsClientServerAddress`, and `Get-DnsClientNrptRule` **before connecting, while connected, and after disconnecting**. Routes and DNS must return to the "before" state. Test disconnect from the UI, from the tray, and by quitting the app mid-connection. Then connect again. Confirm OpenVPN logs a clean exit (not a forced kill) and measure how long it takes. If `--service` does not trigger a clean shutdown, check how openvpn-gui stops OpenVPN (its source is on GitHub, `OpenVPN/openvpn-gui`) and fix it.
+5. Kill OpenWrap from Task Manager while connected. Observe and document what happens to `openvpn.exe`, routes, and DNS (known limitation, no fix required unless simple).
+6. Wrong credentials show the proper error. "Remember username" survives an app restart (check `cmdkey /list | findstr openwrap`), and deleting the profile removes the entry.
+7. DNS policies (profile setting): Split (default), Full override (adds `block-outside-dns`), Observe only (pushed DNS ignored). Check that each behaves as `docs/windows-setup.md` describes.
+8. A Windows user whose profile path contains a **space** (create a test local user if needed). The generated config in `%LOCALAPPDATA%\OpenWrap\runtime\...` must load its `ca`/`cert`/`key` files (paths are escaped by `quote_openvpn_arg`).
 
-### Fase 3 (opcional, me pergunte antes): empacotamento e release
-- Bundle NSIS/MSI (`bundle.targets` por plataforma) e plataforma `windows-x86_64` no updater.
-- Job `windows-latest` em `.github/workflows/release.yml` **sem alterar** o job de macOS que já existe. Atualizar `scripts/package-release.sh` / geração do `latest.json` se necessário.
+App features:
+9. OpenVPN detection (registry and Program Files) and the custom path override in Settings.
+10. "Install OpenVPN" (winget) on a machine without OpenVPN, if feasible, or at least the clear error when winget is missing.
+11. "Reveal log file" / reveal profile / logs folder open Explorer with the item selected.
+12. NSIS installer: install, launch (UAC prompt expected), check the "Run OpenWrap" checkbox at the end of setup (requireAdministrator can break it), uninstall.
+13. Look for any remaining macOS-only wording in the UI ("Finder", "Keychain", "Terminal", "Mac password") and make it platform-aware with `ui/src/lib/platform.ts`.
 
-## Como validar (no Windows real)
+## 6. Hand back
 
-Para cada fase, me mostre os comandos executados e os resultados:
-- Importar um `.ovpn`, conectar, ver o estado chegar a **Connected** e os logs aparecerem na UI.
-- `route print` e `Get-DnsClientServerAddress` / `Get-DnsClientNrptPolicy` durante a conexão e depois do disconnect: rotas e DNS **precisam voltar ao normal**.
-- Disconnect pela UI, pelo tray e fechando o app no meio da conexão. Depois, conectar de novo.
-- Credenciais erradas mostram o erro certo; "lembrar usuário" sobrevive a reiniciar o app.
-- Usuário do Windows com espaço no nome.
-- `cargo test -p openwrap-core -p openwrap-app` e `npm test` passando no Windows. Se der para checar, também não quebram no macOS (CI ou alguém com Mac).
-
-## Entrega
-
-- Branch com commits por fase e um PR descrevendo o que foi feito, o que foi testado (com saídas) e as limitações conhecidas.
-- Um `docs/windows-setup.md` curto: pré-requisitos, instalação do OpenVPN, como rodar em dev e como usar.
+- The PR from section 1, containing a **validation report**: one row per checklist item (pass / fixed / limitation), the commands you ran, and relevant output (trimmed, and with no IPs, hostnames, usernames, or credentials from my VPN; replace them with placeholders).
+- Update `docs/windows-setup.md`: remove "experimental / not validated" wording that no longer applies and adjust "Known limitations".
+- Stop and ask me before anything outside this scope, and whenever a decision changes the design (for example dropping the admin requirement).

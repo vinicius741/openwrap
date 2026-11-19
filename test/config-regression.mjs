@@ -279,3 +279,37 @@ describe('module resolution (npm hoisting)', () => {
     )
   })
 })
+
+// ---------------------------------------------------------------------------
+// Windows Tauri config overlay
+// ---------------------------------------------------------------------------
+describe('src-tauri/tauri.windows.conf.json', () => {
+  const config = JSON.parse(
+    readFileSync(resolve(root, 'src-tauri', 'tauri.windows.conf.json'), 'utf-8'),
+  )
+
+  it('does not build or bundle the Unix-only setuid helper', () => {
+    assert.equal(config.build?.beforeBuildCommand, 'npm run build --workspace ui')
+    // null removes the macOS helper resource map when Tauri merges the overlay.
+    assert.equal(config.bundle?.resources, null)
+  })
+
+  it('embeds the requireAdministrator manifest used to launch OpenVPN', () => {
+    const manifest = readFileSync(
+      resolve(root, 'src-tauri', 'windows', 'openwrap.exe.manifest'),
+      'utf-8',
+    )
+    assert.match(manifest, /requireAdministrator/)
+    assert.match(manifest, /Microsoft\.Windows\.Common-Controls/)
+    const buildScript = readFileSync(resolve(root, 'src-tauri', 'build.rs'), 'utf-8')
+    assert.match(buildScript, /windows\/openwrap\.exe\.manifest/)
+  })
+
+  it('uses perMachine NSIS installMode and a finish-page hook compatible with requireAdministrator', () => {
+    assert.equal(config.bundle?.windows?.nsis?.installMode, 'perMachine')
+    assert.equal(config.bundle?.windows?.nsis?.installerHooks, 'windows/hooks.nsh')
+    const hooks = readFileSync(resolve(root, 'src-tauri', 'windows', 'hooks.nsh'), 'utf-8')
+    assert.match(hooks, /NSIS_HOOK_PREFINISHPAGE/)
+    assert.match(hooks, /ExecShell/)
+  })
+})
