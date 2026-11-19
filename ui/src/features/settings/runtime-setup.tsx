@@ -36,7 +36,7 @@ export function RuntimeSetup({ afterFailure = false }: RuntimeSetupProps) {
         ) : status === 'installing' ? (
           <p className="settings-hint">
             {isWindows
-              ? 'Complete setup in the installer window and keep it open until installation finishes.'
+              ? 'Installing OpenVPN. Keep the setup window open until it finishes, which takes about a minute.'
               : 'Complete setup in Terminal. Enter your Mac password when asked and keep the window open until installation finishes.'}
           </p>
         ) : broken ? (
@@ -72,7 +72,7 @@ export function RuntimeSetup({ afterFailure = false }: RuntimeSetupProps) {
         ) : (
           <p className="settings-hint">
             {isWindows
-              ? 'Install OpenVPN Community with winget. Setup opens a console window and may take several minutes.'
+              ? 'OpenVPN Community (free) is required to connect. Install downloads it from openvpn.net and installs it in a setup window. It takes about a minute.'
               : 'Install OpenVPN and, if needed, Homebrew. Setup opens Terminal and asks for your Mac administrator password. It may take several minutes.'}
           </p>
         )}
@@ -153,6 +153,33 @@ export function OpenVpnBrokenBanner() {
           </button>
         ) : null}
         <button className="action-button action-secondary" disabled={repairing} onClick={() => setDismissed(true)} type="button">
+          Later
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * App-wide notice at launch when OpenVPN is not installed, so a new user can
+ * install it before trying to connect.
+ */
+export function OpenVpnMissingBanner() {
+  const dependencies = useAppStore((state) => state.runtimeDependencies)
+  const [dismissed, setDismissed] = useState(false)
+
+  // Only after a detection finished: null means it has not run yet.
+  const missing = dependencies !== null && !dependencies.openvpn_path
+  if (!missing || dismissed) return null
+
+  return (
+    <div className="update-banner">
+      <div className="error-banner-copy">
+        <strong>Install OpenVPN to connect</strong>
+        <RuntimeSetup />
+      </div>
+      <div className="error-banner-actions">
+        <button className="action-button action-secondary" onClick={() => setDismissed(true)} type="button">
           Later
         </button>
       </div>

@@ -4,7 +4,7 @@ import { Sidebar } from '../components/Sidebar'
 import { TopBar } from '../components/TopBar'
 import { ProfileDetail } from '../features/profiles/ProfileDetail'
 import { SettingsView } from '../features/settings/SettingsView'
-import { OpenVpnBrokenBanner, RuntimeSetup } from '../features/settings/runtime-setup'
+import { OpenVpnBrokenBanner, OpenVpnMissingBanner, RuntimeSetup } from '../features/settings/runtime-setup'
 import { useConnectionEvents } from '../features/connection/useConnectionEvents'
 import { HelperOutdatedBanner, UpdateBanner } from '../features/updates/UpdateBanner'
 import { useUpdateEvents } from '../features/updates/useUpdateEvents'
@@ -48,6 +48,7 @@ export function App() {
           <UpdateBanner />
           <HelperOutdatedBanner />
           <OpenVpnBrokenBanner />
+          <OpenVpnMissingBanner />
           {error ? (
             <div className="error-banner app-error-banner">
               <div>

@@ -179,22 +179,64 @@ fn installer_wrapper(script: &str, result_path: &Path) -> String {
     )
 }
 
+/// CREATE_NEW_CONSOLE: show setup progress in its own window. The child
+/// inherits OpenWrap's elevated token, so it needs no extra prompt.
 #[cfg(windows)]
-fn run_installer(_override_path: Option<&Path>) -> Result<(), CommandError> {
+const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
+
+/// Prefers the bundled `install-openvpn.ps1` (pinned, checksum-verified MSI,
+/// also used by the NSIS installer), which works without winget. It sits next
+/// to `openwrap-app.exe` in the admin-only install directory; builds without
+/// the script fall back to winget.
+#[cfg(windows)]
+fn run_installer(override_path: Option<&Path>) -> Result<(), CommandError> {
+    use std::os::windows::process::CommandExt;
+
+    let script = std::env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(|dir| dir.join("install-openvpn.ps1")))
+        .filter(|path| path.is_file());
+    let Some(script) = script else {
+        return run_winget_installer(override_path);
+    };
+    let system_root = std::env::var_os("SystemRoot")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
+    let powershell = system_root
+        .join("System32")
+        .join("WindowsPowerShell")
+        .join("v1.0")
+        .join("powershell.exe");
+    let status = std::process::Command::new(powershell)
+        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+        .arg(&script)
+        .arg("-PauseOnError")
+        .creation_flags(CREATE_NEW_CONSOLE)
+        .status()
+        .map_err(|error| setup_error(format!("Could not start PowerShell: {error}")))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(setup_error(
+            "The OpenVPN installer failed or was cancelled.",
+        ))
+    }
+}
+
+#[cfg(windows)]
+fn run_winget_installer(_override_path: Option<&Path>) -> Result<(), CommandError> {
     use std::os::windows::process::CommandExt;
 
     let winget = resolve_winget_exe()
         .ok_or_else(|| setup_error("winget (App Installer) is not available on this PC."))?;
 
-    // CREATE_NEW_CONSOLE: show winget's progress in its own window. The child
-    // inherits OpenWrap's elevated token, so the installer needs no extra prompt.
-    const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
     let status = std::process::Command::new(winget)
         .args([
             "install",
             "--id",
             "OpenVPNTechnologies.OpenVPN",
             "--exact",
+            "--silent",
             "--accept-package-agreements",
             "--accept-source-agreements",
         ])

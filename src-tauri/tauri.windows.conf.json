@@ -4,8 +4,13 @@
     "beforeBuildCommand": "npm run build --workspace ui"
   },
   "bundle": {
-    "targets": ["nsis"],
-    "resources": null,
+    "targets": [
+      "nsis"
+    ],
+    "resources": {
+      "../target/release/openwrap-helper": null,
+      "windows/install-openvpn.ps1": "install-openvpn.ps1"
+    },
     "windows": {
       "nsis": {
         "installMode": "perMachine",

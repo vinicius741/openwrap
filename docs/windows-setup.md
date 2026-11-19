@@ -16,9 +16,10 @@ adapter and change routes and DNS.
 
 ## Prerequisites
 
-- Windows 10 or 11 (x64). WebView2 ships with Windows 11; on Windows 10 install
-  the Evergreen runtime if it is missing.
-- **OpenVPN Community 2.6+** from <https://openvpn.net/community-downloads/>
+- Windows 10 or 11 (x64). WebView2 ships with Windows 11; on Windows 10 the
+  installer downloads it if it is missing (Tauri's default bootstrapper).
+- **OpenVPN Community 2.6+**. The OpenWrap installer offers to install it (see
+  below); otherwise get it from <https://openvpn.net/community-downloads/>
   (or `winget install --id OpenVPNTechnologies.OpenVPN --exact`). The default
   install includes the DCO / TAP network drivers OpenWrap relies on. OpenWrap
   finds `openvpn.exe` via `HKLM\SOFTWARE\OpenVPN` or
@@ -27,12 +28,28 @@ adapter and change routes and DNS.
 
 ## Using a build
 
-1. Download the unsigned installer (`OpenWrap_*_x64-setup.exe`) from the
-   `openwrap-windows-installer` artifact of a CI run, or build it yourself (below).
-2. SmartScreen will warn about an unrecognized app: choose **More info → Run anyway**.
-3. Launch OpenWrap and accept the UAC prompt.
-4. If OpenVPN is missing, **Install OpenVPN** in Settings runs winget in a console window.
+1. Download `OpenWrap-Windows-Setup.exe` from the latest release:
+   <https://github.com/vinicius741/openwrap/releases/latest/download/OpenWrap-Windows-Setup.exe>
+   (or the `openwrap-windows-installer` artifact of a CI run, or build it yourself, below).
+2. SmartScreen warns about an unrecognized app because the installer is unsigned:
+   choose **More info → Run anyway**, then accept the administrator prompt.
+3. If OpenVPN is not installed, the installer asks to install it. Choose **Yes**:
+   it downloads the pinned OpenVPN Community MSI from openvpn.net, checks its
+   SHA-256 and installs it with a progress bar (no wizard).
+4. Launch OpenWrap and accept the UAC prompt. If OpenVPN is still missing (you
+   chose No, or the download failed), a banner offers **Install OpenVPN**, which
+   runs the same script in a console window.
 5. Import a `.ovpn` profile and connect.
+
+To update, run the newer `OpenWrap-Windows-Setup.exe` over the existing install.
+
+### OpenVPN setup script
+
+`src-tauri/windows/install-openvpn.ps1` is bundled next to `openwrap-app.exe`
+and used by both the NSIS post-install hook (`hooks.nsh`) and the in-app
+button. It pins one OpenVPN version, URL and SHA-256; bump all three together.
+CI installs OpenVPN with it on every push, so a stale pin fails CI. Silent
+installs (`/S`) skip the OpenVPN prompt.
 
 ## Development
 
@@ -93,7 +110,7 @@ skips building the Unix-only helper and builds a per-machine NSIS installer
   any leftover `auth.txt`) are cleaned on next launch.
 - The non-admin path through OpenVPN's Interactive Service (named pipe plus the
   management interface, as openvpn-gui does) is not implemented.
-- Auto-update and release packaging for Windows are not wired into
-  `release.yml` / `latest.json` yet (and wiring the NSIS updater later will also
+- Auto-update for Windows is not wired into `latest.json` yet (the release
+  workflow only attaches `OpenWrap-Windows-Setup.exe`). Wiring the NSIS updater later will also
   require overriding `.onInstSuccess` relaunch for the `requireAdministrator`
   manifest, just as `hooks.nsh` overrides the finish page).
