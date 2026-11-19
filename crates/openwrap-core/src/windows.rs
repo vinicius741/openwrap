@@ -282,8 +282,8 @@ pub fn openvpn_candidates() -> Vec<PathBuf> {
 #[cfg(test)]
 mod tests {
     use std::os::windows::io::AsRawHandle;
-    use std::process::Command;
-    use std::time::Duration;
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
 
     use super::{openvpn_candidates, to_wide, ExitEvent, JobObject, ProcessHandle};
 
@@ -303,8 +303,10 @@ mod tests {
 
     #[test]
     fn process_handle_terminates_after_grace_period() {
-        let mut child = Command::new("cmd.exe")
-            .args(["/C", "ping -n 30 127.0.0.1 >nul"])
+        let mut child = Command::new("ping.exe")
+            .args(["-n", "30", "127.0.0.1"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
             .spawn()
             .unwrap();
         let handle = ProcessHandle::from_raw_handle(child.as_raw_handle())
@@ -317,15 +319,23 @@ mod tests {
     #[test]
     fn job_object_terminates_assigned_process_on_drop() {
         let job = JobObject::create_kill_on_close().expect("should create job object");
-        let mut child = Command::new("cmd.exe")
-            .args(["/C", "ping -n 30 127.0.0.1 >nul"])
+        let mut child = Command::new("ping.exe")
+            .args(["-n", "30", "127.0.0.1"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
             .spawn()
             .unwrap();
         job.assign_raw_handle(child.as_raw_handle())
             .expect("should assign child process to job");
+        // Windows terminates processes on JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        // with exit code 0, so verify the 29 s ping exits immediately on drop.
+        let started = Instant::now();
         drop(job);
-        let status = child.wait().unwrap();
-        assert!(!status.success());
+        let _ = child.wait().unwrap();
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "dropping JobObject did not promptly terminate assigned child"
+        );
     }
 
     #[test]
