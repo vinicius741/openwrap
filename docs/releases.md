@@ -15,7 +15,14 @@ nothing) and no Apple Developer account is needed.
    - builds `OpenWrap.app.tar.gz` **after** re-signing and signs it with the
      updater key (`.sig`),
    - writes `latest.json`.
-   It then publishes a GitHub Release with those four files.
+   It then creates a **draft** GitHub Release with those four files.
+   The `windows-installer` job builds the NSIS installer and attaches it as
+   `OpenWrap-Windows-Setup.exe`. The `publish` job (Linux) signs it with the
+   updater key (`OpenWrap-Windows-Setup.exe.sig`), adds `windows-x86_64` and
+   `windows-x86_64-nsis` entries to `latest.json`
+   (`scripts/add-windows-update.mjs`) and publishes the release. Installed
+   apps never see a release that is missing one platform's files. If a job
+   fails, the release stays a draft: re-run the failed job.
 3. On startup the app fetches
    `https://github.com/vinicius741/openwrap/releases/latest/download/latest.json`
    (`plugins.updater` in `src-tauri/tauri.conf.json`). When the version is
@@ -23,6 +30,11 @@ nothing) and no Apple Developer account is needed.
    verifies its signature, swaps the app bundle (macOS asks for a password if
    the app folder is not writable), disconnects the VPN and restarts.
    Settings → Updates has a manual "Check for updates" button.
+   On Windows, "Update and restart" disconnects the VPN, runs the signed
+   installer in passive update mode and the installer relaunches OpenWrap
+   (see `docs/windows-setup.md`, "Updates"). Windows builds 0.3.2 and
+   earlier do not check for updates; their users install the new
+   `OpenWrap-Windows-Setup.exe` once by hand, which keeps their data.
 
 Files downloaded by the app itself do not get the macOS quarantine flag, so
 updated builds open without Gatekeeper prompts.

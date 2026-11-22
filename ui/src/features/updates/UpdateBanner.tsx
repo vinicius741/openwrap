@@ -37,7 +37,7 @@ export function UpdateBanner() {
           <p className="update-progress">
             {downloadDone
               ? isWindows
-                ? 'Installing… Windows may ask you to approve the installer.'
+                ? 'Installing… OpenWrap closes and reopens by itself when it is done.'
                 : 'Installing… macOS may ask for your password.'
               : formatUpdateProgress(updateProgress)}
           </p>

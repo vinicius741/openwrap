@@ -145,6 +145,57 @@ jobs:
           Remove-Item -Recurse -Force $installDir -ErrorAction SilentlyContinue
           Write-Host "Confirmed: NSIS silent install and uninstall succeeded."
 
+      # Existing Windows users: installing this build over the released one must
+      # keep %LOCALAPPDATA%\OpenWrap (profiles, settings, logs) and, in the
+      # in-app update mode (/UPDATE), relaunch OpenWrap from hooks.nsh.
+      - name: Verify upgrade over the released build keeps data and relaunches
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $prev = Join-Path $env:RUNNER_TEMP "openwrap-previous"
+          New-Item -ItemType Directory -Force -Path $prev | Out-Null
+          gh release download --repo $env:GITHUB_REPOSITORY --pattern OpenWrap-Windows-Setup.exe --dir $prev --clobber
+          if ($LASTEXITCODE -ne 0) { throw "Could not download the released OpenWrap-Windows-Setup.exe" }
+          $oldInstaller = Join-Path $prev "OpenWrap-Windows-Setup.exe"
+          $newInstaller = (Get-ChildItem -Path target/release/bundle/nsis -Filter "*.exe" | Select-Object -First 1).FullName
+          $installDir = Join-Path $env:ProgramFiles "OpenWrap"
+          $installedExe = Join-Path $installDir "openwrap-app.exe"
+
+          Write-Host "Installing the released build..."
+          $p = Start-Process -FilePath $oldInstaller -ArgumentList "/S" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Released installer exited with $($p.ExitCode)" }
+          if (-not (Test-Path $installedExe)) { throw "Released build not installed at $installedExe" }
+
+          $dataDir = Join-Path $env:LOCALAPPDATA "OpenWrap"
+          New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
+          $marker = Join-Path $dataDir "ci-upgrade-marker.txt"
+          Set-Content -Path $marker -Value "keep me"
+
+          Write-Host "Installing this build in update mode (/S /UPDATE)..."
+          $p = Start-Process -FilePath $newInstaller -ArgumentList "/S", "/UPDATE" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Update install exited with $($p.ExitCode)" }
+
+          $relaunched = $false
+          for ($i = 0; $i -lt 100 -and -not $relaunched; $i++) {
+            if (Get-Process -Name "openwrap-app" -ErrorAction SilentlyContinue) { $relaunched = $true } else { Start-Sleep -Milliseconds 200 }
+          }
+          Get-Process -Name "openwrap-app" -ErrorAction SilentlyContinue | Stop-Process -Force
+          Start-Sleep -Seconds 2
+          if (-not $relaunched) { throw "OpenWrap was not relaunched after the update install" }
+          Write-Host "Confirmed: update mode relaunches OpenWrap."
+
+          if ((Get-FileHash $installedExe).Hash -ne (Get-FileHash target/release/openwrap-app.exe).Hash) {
+            throw "Installed openwrap-app.exe was not replaced by this build"
+          }
+          if ((Get-Content $marker -Raw).Trim() -ne "keep me") { throw "User data in $dataDir was not preserved" }
+          Write-Host "Confirmed: upgrade replaced the app and kept $dataDir."
+
+          $u = Start-Process -FilePath (Join-Path $installDir "uninstall.exe") -ArgumentList "/S", "_?=$installDir" -Wait -PassThru
+          if ($u.ExitCode -ne 0) { throw "Silent uninstall exited with $($u.ExitCode)" }
+          if (-not (Test-Path $marker)) { throw "Uninstall removed user data in $dataDir" }
+          Remove-Item -Recurse -Force $installDir, $marker -ErrorAction SilentlyContinue
+
       - uses: actions/upload-artifact@v4
         with:
           name: openwrap-windows-installer

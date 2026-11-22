@@ -5,6 +5,9 @@
 //! only installs archives whose signature matches the public key embedded in
 //! `tauri.conf.json`.
 //!
+//! macOS installs `OpenWrap.app.tar.gz`; Windows installs the signed
+//! `OpenWrap-Windows-Setup.exe` (NSIS) from the same `latest.json`.
+//!
 //! The setuid helper in `/Library/PrivilegedHelperTools` is NOT replaced by an
 //! update. Installing it requires a separate macOS authorization prompt.
 //! `get_app_info` reports when the installed helper differs from the one bundled
@@ -86,14 +89,42 @@ fn update_error(title: &str, error: impl std::fmt::Display) -> CommandError {
     }
 }
 
+/// Builds the updater used for both the check and the install.
+///
+/// On Windows the plugin runs the downloaded NSIS installer (`/P /UPDATE`) and
+/// then ends the process with `std::process::exit(0)`, so neither
+/// `ExitRequested` nor the code after `download_and_install` runs.
+/// `on_before_exit` performs the normal shutdown first (disconnect the VPN,
+/// restore DNS, remove runtime files such as `auth.txt`).
+///
+/// The installer is not asked to restart the app (`/R`): Tauri's template
+/// relaunches through `nsis_tauri_utils::RunAsUser`, which fails for
+/// OpenWrap's `requireAdministrator` binary. `windows/hooks.nsh` relaunches it
+/// elevated in update mode instead.
+fn build_updater(app: &AppHandle) -> Result<tauri_plugin_updater::Updater, CommandError> {
+    let builder = app.updater_builder();
+    #[cfg(windows)]
+    let builder = {
+        let handle = app.clone();
+        builder
+            .restart_after_install(false)
+            .on_before_exit(move || {
+                if let Some(state) = handle.try_state::<AppState>() {
+                    state.shutdown();
+                }
+            })
+    };
+    builder
+        .build()
+        .map_err(|error| update_error("Update check failed", error))
+}
+
 #[tauri::command]
 pub async fn check_for_update(
     app: AppHandle,
     pending: tauri::State<'_, PendingUpdate>,
 ) -> Result<Option<UpdateInfo>, CommandError> {
-    let updater = app
-        .updater()
-        .map_err(|error| update_error("Update check failed", error))?;
+    let updater = build_updater(&app)?;
     let update = updater
         .check()
         .await
@@ -111,8 +142,10 @@ pub async fn check_for_update(
 
 /// Download, verify and install the pending update, then restart the app.
 ///
-/// The restart goes through `ExitRequested`, so `AppState::shutdown()`
+/// macOS: the restart goes through `ExitRequested`, so `AppState::shutdown()`
 /// disconnects any active VPN session before the new version starts.
+/// Windows: `download_and_install` never returns on success; see
+/// [`build_updater`].
 #[tauri::command]
 pub async fn install_update(
     app: AppHandle,

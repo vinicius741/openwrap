@@ -41,7 +41,37 @@ adapter and change routes and DNS.
    runs the same script in a console window.
 5. Import a `.ovpn` profile and connect.
 
-To update, run the newer `OpenWrap-Windows-Setup.exe` over the existing install.
+### Updates
+
+OpenWrap checks
+<https://github.com/vinicius741/openwrap/releases/latest/download/latest.json>
+when it starts (and from **Settings → Updates → Check for updates**). When a
+newer version exists, a banner offers **Update and restart**. OpenWrap then:
+
+1. downloads `OpenWrap-Windows-Setup.exe` and verifies its minisign signature
+   against the updater public key in `tauri.conf.json`;
+2. shuts down normally (disconnects the VPN, restores DNS, removes runtime
+   files such as `auth.txt`);
+3. runs the installer in passive update mode (`/P /UPDATE`): a progress bar,
+   no wizard and no UAC prompt, because the elevated app starts it;
+4. the installer's update-mode hook in `hooks.nsh` starts the new OpenWrap
+   elevated, without another UAC prompt.
+
+Profiles, settings and logs live in `%LOCALAPPDATA%\OpenWrap` and saved
+usernames in Credential Manager. The installer and uninstaller never touch
+them, so every upgrade path keeps them.
+
+**Upgrading from 0.3.2 or earlier.** Those builds never check for updates on
+Windows, so they cannot be updated remotely. Run the newest
+`OpenWrap-Windows-Setup.exe` (link above) once over the existing install.
+If the installer asks, either **Uninstall before installing** or **Do not
+uninstall** keeps your data. Do not tick **Delete the application data** if
+you uninstall by hand; it only removes WebView data (such as the What's new
+"seen" flag), but there is no reason to. After that one manual install,
+updates are automatic. CI checks this path on every push: it installs the
+released build, adds a file to `%LOCALAPPDATA%\OpenWrap`, installs the new
+build in update mode, and checks that the file survives and OpenWrap
+relaunches.
 
 ### OpenVPN setup script
 
@@ -110,7 +140,3 @@ skips building the Unix-only helper and builds a per-machine NSIS installer
   any leftover `auth.txt`) are cleaned on next launch.
 - The non-admin path through OpenVPN's Interactive Service (named pipe plus the
   management interface, as openvpn-gui does) is not implemented.
-- Auto-update for Windows is not wired into `latest.json` yet (the release
-  workflow only attaches `OpenWrap-Windows-Setup.exe`). Wiring the NSIS updater later will also
-  require overriding `.onInstSuccess` relaunch for the `requireAdministrator`
-  manifest, just as `hooks.nsh` overrides the finish page).
