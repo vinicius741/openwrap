@@ -195,6 +195,7 @@ jobs:
             throw "Released build was not found after a silent install"
           }
           $installedExe = Join-Path $installDir "openwrap-app.exe"
+          $releasedHash = (Get-FileHash $installedExe).Hash
           Write-Host "Released build installed at $installDir"
 
           $dataDir = Join-Path $env:LOCALAPPDATA "OpenWrap"
@@ -220,7 +221,9 @@ jobs:
           if (-not $relaunched) { throw "OpenWrap was not relaunched after the update install" }
           Write-Host "Confirmed: update mode relaunches OpenWrap."
 
-          if ((Get-FileHash $installedExe).Hash -ne (Get-FileHash target/release/openwrap-app.exe).Hash) {
+          # Not compared with target/release/openwrap-app.exe: Tauri patches a
+          # bundle-type marker into the copy it packs into the installer.
+          if ((Get-FileHash $installedExe).Hash -eq $releasedHash) {
             throw "Installed openwrap-app.exe was not replaced by this build"
           }
           if ((Get-Content $marker -Raw).Trim() -ne "keep me") { throw "User data in $dataDir was not preserved" }
