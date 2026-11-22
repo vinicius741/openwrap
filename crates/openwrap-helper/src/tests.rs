@@ -6,9 +6,14 @@ mod tests {
     use tempfile::tempdir;
 
     use crate::reconcile::cleanup_transient_dns_files;
-    use crate::reconcile::dns::{parse_global_override_state_line, reconcile_global_override};
+    use crate::reconcile::dns::{
+        is_resolver_file_path, parse_global_override_state_line, read_state_file,
+        reconcile_dns_routes, reconcile_global_override, reconcile_scoped_resolvers,
+    };
     use crate::reconcile::processes::{extract_managed_openvpn_config, parse_ps_line};
-    use crate::request::validate_config_path;
+    use crate::request::{
+        is_allowed_openvpn_location, validate_config_path, validate_openvpn_binary,
+    };
     use crate::system::normalize_networksetup_dns_output;
 
     #[test]
@@ -140,5 +145,73 @@ mod tests {
         reconcile_global_override(&state_file).unwrap();
 
         assert!(!state_file.exists());
+    }
+
+    #[test]
+    fn state_files_are_never_read_or_written_through_symlinks() {
+        let temp = tempdir().unwrap();
+        let secret = temp.path().join("root-only.txt");
+        fs::write(&secret, "secret line\n").unwrap();
+        let state_file = temp.path().join("global.tsv");
+        std::os::unix::fs::symlink(&secret, &state_file).unwrap();
+
+        assert!(read_state_file(&state_file).is_err());
+        assert!(reconcile_global_override(&state_file).is_err());
+        assert!(reconcile_scoped_resolvers(&state_file, "profile").is_err());
+        assert_eq!(fs::read_to_string(&secret).unwrap(), "secret line\n");
+
+        assert_eq!(
+            read_state_file(&temp.path().join("missing.tsv")).unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn scoped_reconcile_only_removes_files_in_etc_resolver() {
+        let temp = tempdir().unwrap();
+        let victim = temp.path().join("victim");
+        fs::write(&victim, "# OpenWrap managed DNS\n# profile_id=p1\n").unwrap();
+        let state_file = temp.path().join("scoped.tsv");
+        fs::write(&state_file, format!("corp.example\t{}\n", victim.display())).unwrap();
+
+        let error = reconcile_scoped_resolvers(&state_file, "p1").unwrap_err();
+
+        assert!(error.contains("not a file in /etc/resolver"));
+        assert!(victim.exists());
+        assert!(is_resolver_file_path(Path::new(
+            "/etc/resolver/corp.example"
+        )));
+        assert!(!is_resolver_file_path(Path::new(
+            "/etc/resolver/../sudoers"
+        )));
+        assert!(!is_resolver_file_path(Path::new("/etc/resolver")));
+        assert!(!is_resolver_file_path(Path::new("/etc/resolver/a/b")));
+    }
+
+    #[test]
+    fn route_reconcile_rejects_entries_that_are_not_ip_addresses() {
+        let temp = tempdir().unwrap();
+        let state_file = temp.path().join("dns-routes.tsv");
+        fs::write(&state_file, "default\t\n10.0.0.53\t-ifscope en0\n").unwrap();
+
+        let error = reconcile_dns_routes(&state_file).unwrap_err();
+
+        assert_eq!(error.matches("is not an IP address").count(), 2);
+    }
+
+    #[test]
+    fn only_known_openvpn_install_locations_are_launched() {
+        assert!(is_allowed_openvpn_location(Path::new(
+            "/opt/homebrew/sbin/openvpn"
+        )));
+        assert!(is_allowed_openvpn_location(Path::new(
+            "/usr/local/sbin/openvpn"
+        )));
+        assert!(!is_allowed_openvpn_location(Path::new(
+            "/Users/me/bin/openvpn"
+        )));
+        assert!(!is_allowed_openvpn_location(Path::new("/bin/sh")));
+        let error = validate_openvpn_binary(Path::new("/tmp/openvpn")).unwrap_err();
+        assert!(error.contains("not in a supported install location"));
     }
 }

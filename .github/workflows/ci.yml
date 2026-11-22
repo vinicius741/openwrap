@@ -40,7 +40,7 @@ jobs:
         run: |
           npm test
           cargo build -p openwrap-helper --release
-          cargo test -p openwrap-core -p openwrap-app
+          cargo test -p openwrap-core -p openwrap-helper -p openwrap-app
 
       - name: Build OpenWrap.app (unsigned)
         run: npx --yes @tauri-apps/cli@2 build --bundles app

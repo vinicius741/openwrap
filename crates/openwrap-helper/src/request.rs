@@ -4,6 +4,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
+pub use openwrap_core::openvpn::runtime::UNIX_OPENVPN_LOCATIONS;
 pub use openwrap_core::openvpn::ConnectRequest;
 pub use openwrap_core::openvpn::ReconcileDnsRequest;
 
@@ -70,6 +71,15 @@ pub fn validate_openvpn_binary(path: &Path) -> Result<(), String> {
     if !path.is_absolute() {
         return Err("openvpn binary path must be absolute".into());
     }
+    // The helper runs this binary as root, so the caller must not be able to
+    // pick an arbitrary program.
+    if !is_allowed_openvpn_location(path) {
+        return Err(format!(
+            "openvpn binary is not in a supported install location: {} (expected one of: {})",
+            path.display(),
+            UNIX_OPENVPN_LOCATIONS.join(", ")
+        ));
+    }
     let canonical = fs::canonicalize(path)
         .map_err(|error| format!("failed to resolve openvpn binary: {error}"))?;
     let metadata = fs::metadata(&canonical)
@@ -83,6 +93,38 @@ pub fn validate_openvpn_binary(path: &Path) -> Result<(), String> {
             canonical.display()
         ))
     }
+}
+
+pub fn is_allowed_openvpn_location(path: &Path) -> bool {
+    UNIX_OPENVPN_LOCATIONS
+        .iter()
+        .any(|allowed| path == Path::new(allowed))
+}
+
+/// The helper only serves the user logged in at the Mac's screen (the owner
+/// of `/dev/console`). Other local accounts, SSH sessions and background
+/// accounts cannot use it to run OpenVPN or change DNS as root.
+#[cfg(target_os = "macos")]
+pub fn ensure_console_user() -> Result<(), String> {
+    use std::os::unix::fs::MetadataExt;
+
+    let uid = unsafe { libc::getuid() };
+    if uid == 0 {
+        return Ok(());
+    }
+    let console_owner = fs::metadata("/dev/console")
+        .map_err(|error| format!("failed to identify the console user: {error}"))?
+        .uid();
+    if console_owner == uid {
+        Ok(())
+    } else {
+        Err("openwrap-helper only runs for the user logged in at this Mac's screen".into())
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn ensure_console_user() -> Result<(), String> {
+    Ok(())
 }
 
 pub fn real_user_home_dir() -> Result<PathBuf, String> {

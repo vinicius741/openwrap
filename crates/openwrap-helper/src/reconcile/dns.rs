@@ -1,16 +1,65 @@
 use std::fs;
+use std::io::{Read, Write};
 use std::net::IpAddr;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
 use crate::system::{delete_dns_route, flush_dns_cache, restore_service_dns, verify_service_dns};
 
-pub fn reconcile_global_override(state_file: &Path) -> Result<(), String> {
-    if !state_file.exists() {
-        return Ok(());
-    }
+/// Directory resolver files live in; the only place reconcile deletes from.
+const RESOLVER_DIR: &str = "/etc/resolver";
 
-    let contents = fs::read_to_string(state_file)
-        .map_err(|error| format!("failed to read DNS restore state: {error}"))?;
+/// Reads a state file from the user-writable runtime directory.
+///
+/// The helper runs as root, so it refuses to follow a symlink there:
+/// otherwise a link to a root-only file would be read (and echoed back in
+/// error messages) or overwritten.
+pub fn read_state_file(path: &Path) -> Result<Option<String>, String> {
+    let mut file = match fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(path)
+    {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(format!(
+                "refusing to read DNS state {} (not a regular file?): {error}",
+                path.display()
+            ))
+        }
+    };
+    if !file
+        .metadata()
+        .map_err(|error| format!("failed to inspect {}: {error}", path.display()))?
+        .is_file()
+    {
+        return Err(format!(
+            "DNS state {} is not a regular file",
+            path.display()
+        ));
+    }
+    let mut contents = String::new();
+    file.read_to_string(&mut contents)
+        .map_err(|error| format!("failed to read DNS state {}: {error}", path.display()))?;
+    Ok(Some(contents))
+}
+
+fn write_state_file(path: &Path, contents: &str) -> Result<(), String> {
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(path)
+        .map_err(|error| format!("failed to update DNS restore state: {error}"))?;
+    file.write_all(contents.as_bytes())
+        .map_err(|error| format!("failed to update DNS restore state: {error}"))
+}
+
+pub fn reconcile_global_override(state_file: &Path) -> Result<(), String> {
+    let Some(contents) = read_state_file(state_file)? else {
+        return Ok(());
+    };
     let mut errors = Vec::new();
     let mut remaining_entries = Vec::new();
     for line in contents.lines() {
@@ -52,8 +101,7 @@ pub fn reconcile_global_override(state_file: &Path) -> Result<(), String> {
         let _ = fs::remove_file(state_file);
     } else {
         let rewritten = remaining_entries.join("\n") + "\n";
-        fs::write(state_file, rewritten)
-            .map_err(|error| format!("failed to update DNS restore state: {error}"))?;
+        write_state_file(state_file, &rewritten)?;
     }
 
     if errors.is_empty() {
@@ -89,12 +137,9 @@ pub fn is_plausible_network_service_name(service: &str) -> bool {
 }
 
 pub fn reconcile_scoped_resolvers(state_file: &Path, profile_id: &str) -> Result<(), String> {
-    if !state_file.exists() {
+    let Some(contents) = read_state_file(state_file)? else {
         return Ok(());
-    }
-
-    let contents = fs::read_to_string(state_file)
-        .map_err(|error| format!("failed to read scoped DNS state: {error}"))?;
+    };
     let profile_marker = format!("# profile_id={profile_id}");
     let mut errors = Vec::new();
     for line in contents.lines() {
@@ -103,8 +148,23 @@ pub fn reconcile_scoped_resolvers(state_file: &Path, profile_id: &str) -> Result
             continue;
         };
         let resolver_path = PathBuf::from(resolver_path);
-        if !resolver_path.exists() {
+        if !is_resolver_file_path(&resolver_path) {
+            errors.push(format!(
+                "refusing to remove {}: not a file in {RESOLVER_DIR}",
+                resolver_path.display()
+            ));
             continue;
+        }
+        match fs::symlink_metadata(&resolver_path) {
+            Err(_) => continue,
+            Ok(metadata) if !metadata.is_file() => {
+                errors.push(format!(
+                    "refusing to remove {}: not a regular file",
+                    resolver_path.display()
+                ));
+                continue;
+            }
+            Ok(_) => {}
         }
 
         if !is_openwrap_owned_resolver(&resolver_path, &profile_marker) {
@@ -134,12 +194,9 @@ pub fn reconcile_scoped_resolvers(state_file: &Path, profile_id: &str) -> Result
 }
 
 pub fn reconcile_dns_routes(state_file: &Path) -> Result<(), String> {
-    if !state_file.exists() {
+    let Some(contents) = read_state_file(state_file)? else {
         return Ok(());
-    }
-
-    let contents = fs::read_to_string(state_file)
-        .map_err(|error| format!("failed to read DNS route state: {error}"))?;
+    };
     let mut errors = Vec::new();
     for line in contents.lines() {
         let Some((dns_server, dns_gateway)) = line.split_once('\t') else {
@@ -148,6 +205,13 @@ pub fn reconcile_dns_routes(state_file: &Path) -> Result<(), String> {
         };
         if dns_server.is_empty() {
             errors.push(format!("DNS route entry missing server: {line:?}"));
+            continue;
+        }
+        // Only host routes to DNS server IPs were ever recorded here.
+        if dns_server.parse::<IpAddr>().is_err()
+            || (!dns_gateway.is_empty() && dns_gateway.parse::<IpAddr>().is_err())
+        {
+            errors.push(format!("DNS route entry is not an IP address: {line:?}"));
             continue;
         }
 
@@ -167,6 +231,15 @@ pub fn reconcile_dns_routes(state_file: &Path) -> Result<(), String> {
     } else {
         Err(errors.join("; "))
     }
+}
+
+/// `/etc/resolver/<name>` with a plain file name, nothing else.
+pub fn is_resolver_file_path(path: &Path) -> bool {
+    path.parent() == Some(Path::new(RESOLVER_DIR))
+        && path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| !name.is_empty() && name != ".." && name != ".")
 }
 
 pub fn is_openwrap_owned_resolver(path: &Path, profile_marker: &str) -> bool {

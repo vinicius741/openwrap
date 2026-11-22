@@ -88,4 +88,12 @@ Notes:
 
 - The helper only accepts app-managed config/auth/runtime paths under `~/Library/Application Support/OpenWrap`.
 - The helper launches OpenVPN with structured argv and a cleared environment.
+- The helper only runs for the user logged in at the Mac's screen (the owner of
+  `/dev/console`). It refuses other local accounts, SSH sessions and
+  background accounts (exit status 77).
+- The helper only launches OpenVPN from a known install location:
+  `/opt/homebrew/sbin/openvpn`, `/usr/local/sbin/openvpn` (Homebrew) or
+  `/opt/local/sbin/openvpn` (MacPorts). A custom OpenVPN path elsewhere is
+  refused.
+- See `docs/security-model.md` for what the helper does **not** protect against.
 - If the helper is missing, not root-owned, or not setuid, OpenWrap fails the connection attempt with a setup error instead of falling back to an unprivileged direct launch on macOS.
