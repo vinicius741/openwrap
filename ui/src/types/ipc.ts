@@ -121,7 +121,7 @@ export interface CredentialPrompt {
 export interface LogEntry {
   ts: string
   stream: string
-  level: 'Debug' | 'Info' | 'Warn' | 'Error'
+  level: 'debug' | 'info' | 'warn' | 'error'
   message: string
   sanitized: boolean
   classification: string

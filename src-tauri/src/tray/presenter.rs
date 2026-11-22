@@ -71,12 +71,11 @@ pub fn apply_tray_state(
                 snapshot.state,
                 ConnectionState::Idle | ConnectionState::Error
             );
-        let can_disconnect = matches!(
+        // Disconnect also cancels an attempt that has not reached Connecting,
+        // so no state leaves both menu items disabled.
+        let can_disconnect = !matches!(
             snapshot.state,
-            ConnectionState::Connecting
-                | ConnectionState::Connected
-                | ConnectionState::Reconnecting
-                | ConnectionState::AwaitingCredentials
+            ConnectionState::Idle | ConnectionState::Error | ConnectionState::Disconnecting
         );
         let _ = state.connect.set_enabled(can_connect);
         let _ = state.disconnect.set_enabled(can_disconnect);

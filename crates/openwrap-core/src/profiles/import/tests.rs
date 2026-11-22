@@ -109,6 +109,42 @@ fn blocks_asset_path_traversal() {
         .any(|error| error.contains("Path traversal detected")));
 }
 
+#[cfg(unix)]
+#[test]
+fn blocks_symlinked_assets_that_point_outside_the_import_directory() {
+    let temp = TempDir::new().unwrap();
+    let source_dir = temp.path().join("source");
+    fs::create_dir_all(&source_dir).unwrap();
+    let outside = temp.path().join("outside-secret.pem");
+    fs::write(&outside, "not part of the profile").unwrap();
+    std::os::unix::fs::symlink(&outside, source_dir.join("client.crt")).unwrap();
+    fs::write(
+        source_dir.join("sample.ovpn"),
+        "client\nremote vpn.example.com 1194\ncert client.crt\n",
+    )
+    .unwrap();
+
+    let paths = AppPaths::new(temp.path().join("app"));
+    paths.ensure().unwrap();
+    let repository = Arc::new(SqliteRepository::new(&paths.database_path).unwrap());
+    let importer = ProfileImporter::new(paths, repository);
+
+    let response = importer
+        .import_profile(ImportProfileRequest {
+            source_path: source_dir.join("sample.ovpn"),
+            display_name: None,
+            allow_warnings: true,
+        })
+        .unwrap();
+
+    assert!(response.profile.is_none());
+    assert!(response
+        .report
+        .errors
+        .iter()
+        .any(|error| error.contains("Path traversal detected")));
+}
+
 #[test]
 fn blocks_duplicate_inline_and_file_assets() {
     let temp = TempDir::new().unwrap();

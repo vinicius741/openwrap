@@ -177,7 +177,19 @@ fn resolve_asset_path(source_dir: &Path, candidate: &Path) -> Result<PathBuf, Ap
     }
 
     if candidate_path.exists() {
-        fs::canonicalize(&candidate_path).map_err(AppError::from)
+        // The parent check above does not cover a symlinked file: resolve the
+        // target and make sure it is still inside the import directory.
+        let canonical = fs::canonicalize(&candidate_path)?;
+        if !canonical.starts_with(source_dir) {
+            return Err(AppError::Validation {
+                title: "Path traversal detected".into(),
+                message: "Referenced asset is a link to a file outside the import directory."
+                    .into(),
+                directive: None,
+                line: None,
+            });
+        }
+        Ok(canonical)
     } else {
         Ok(candidate_path)
     }

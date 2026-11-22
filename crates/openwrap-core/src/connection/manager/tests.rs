@@ -171,9 +171,14 @@ mod tests {
         reconcile_results: VecDeque<Result<(), AppError>>,
     }
 
+    type ConnectHook = Box<dyn Fn() + Send + Sync>;
+
     #[derive(Clone, Default)]
     struct FakeBackend {
         state: Arc<Mutex<FakeBackendState>>,
+        /// Runs inside `connect`, after the process "started": simulates a
+        /// user action that lands while OpenVPN is starting.
+        on_connect: Arc<Mutex<Option<ConnectHook>>>,
     }
 
     #[derive(Clone)]
@@ -230,6 +235,9 @@ mod tests {
 
         fn connect(&self, request: ConnectRequest) -> Result<SpawnedSession, AppError> {
             self.state.lock().requests.push(request.clone());
+            if let Some(hook) = self.on_connect.lock().as_ref() {
+                hook();
+            }
             match self
                 .state
                 .lock()
@@ -256,6 +264,26 @@ mod tests {
             state.reconcile_requests.push(request);
             state.reconcile_results.pop_front().unwrap_or(Ok(()))
         }
+    }
+
+    /// Runs a future that never awaits anything pending (like
+    /// `ConnectionManager::disconnect`) to completion synchronously.
+    fn run_now<F: std::future::Future>(future: F) -> F::Output {
+        let mut future = std::pin::pin!(future);
+        let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+        match future.as_mut().poll(&mut context) {
+            std::task::Poll::Ready(output) => output,
+            std::task::Poll::Pending => panic!("future was expected to complete immediately"),
+        }
+    }
+
+    fn pin_totp_secret() -> StoredSecret {
+        StoredSecret::pin_totp(
+            ProfileId::new(),
+            "alice".into(),
+            "1234".into(),
+            "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ".into(),
+        )
     }
 
     async fn yield_until(mut condition: impl FnMut() -> bool) {
@@ -429,7 +457,8 @@ mod tests {
 
         let connected = manager.snapshot();
         assert_eq!(connected.state, ConnectionState::Connected);
-        assert_eq!(connected.retry_count, 1);
+        // Reaching Connected refills the retry budget for later drops.
+        assert_eq!(connected.retry_count, 0);
     }
 
     #[tokio::test]
@@ -1001,5 +1030,116 @@ mod tests {
 
         assert!(secret_store.get_password(&profile_id).unwrap().is_none());
         assert!(!*repository.saved_credentials.lock());
+    }
+
+    #[tokio::test]
+    async fn early_connect_errors_end_in_error_instead_of_a_stuck_state() {
+        // PIN+TOTP profile whose generated-password setup was never saved.
+        let (manager, backend, profile_id, _, _) = build_manager_with_strategy(
+            CredentialMode::UserPass,
+            CredentialStrategy::PinTotp,
+            None,
+        );
+
+        let error = manager.connect(profile_id.to_string()).await.unwrap_err();
+        assert!(matches!(error, AppError::Settings(_)));
+        let snapshot = manager.snapshot();
+        assert_eq!(snapshot.state, ConnectionState::Error);
+        assert!(snapshot.last_error.is_some());
+        assert_eq!(backend.request_count(), 0);
+
+        // Connect is a valid transition again (it used to fail with
+        // "invalid transition from ValidatingProfile").
+        let error = manager.connect(profile_id.to_string()).await.unwrap_err();
+        assert!(matches!(error, AppError::Settings(_)));
+    }
+
+    #[tokio::test]
+    async fn late_connected_line_does_not_undo_a_disconnect() {
+        let (manager, backend, profile_id, _, _) = build_manager(CredentialMode::None, None);
+        let session = backend.queue_session(Some(51));
+        manager.connect(profile_id.to_string()).await.unwrap();
+
+        manager.disconnect().await.unwrap();
+        assert_eq!(manager.snapshot().state, ConnectionState::Disconnecting);
+
+        session
+            .tx
+            .send(BackendEvent::Stdout(
+                "Initialization Sequence Completed".into(),
+            ))
+            .unwrap();
+        tokio::task::yield_now().await;
+        assert_eq!(manager.snapshot().state, ConnectionState::Disconnecting);
+
+        session.tx.send(BackendEvent::Exited(Some(0))).unwrap();
+        yield_until(|| manager.snapshot().state == ConnectionState::Idle).await;
+        assert!(manager.snapshot().last_error.is_none());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn generated_password_profiles_retry_with_a_fresh_otp_step() {
+        let (manager, backend, profile_id, _, _) = build_manager_with_strategy(
+            CredentialMode::UserPass,
+            CredentialStrategy::PinTotp,
+            Some(pin_totp_secret()),
+        );
+        let first = backend.queue_session(Some(61));
+        let _second = backend.queue_session(Some(62));
+        manager.connect(profile_id.to_string()).await.unwrap();
+
+        // Soft restarts exit so the retry can send a new one-time password.
+        let config = std::fs::read_to_string(backend.last_request().unwrap().config_path).unwrap();
+        assert!(config.contains("remap-usr1 SIGTERM"));
+
+        first.tx.send(BackendEvent::Exited(Some(0))).unwrap();
+        yield_until(|| manager.snapshot().state == ConnectionState::Reconnecting).await;
+        let substate = manager.snapshot().substate.unwrap();
+        let delay: u64 = substate
+            .trim_start_matches("Retrying in ")
+            .trim_end_matches(" seconds")
+            .parse()
+            .unwrap();
+        // At least the backoff, and long enough to reach the next TOTP step.
+        assert!((2..=31).contains(&delay), "unexpected delay {delay}");
+
+        tokio::time::advance(Duration::from_secs(delay)).await;
+        yield_until(|| backend.request_count() == 2).await;
+        let auth_file = backend.last_request().unwrap().auth_file.unwrap();
+        assert!(std::fs::read_to_string(auth_file)
+            .unwrap()
+            .starts_with("alice\n1234"));
+    }
+
+    #[tokio::test]
+    async fn prompt_profiles_do_not_remap_soft_restarts() {
+        let (manager, backend, profile_id, _, _) = build_manager(CredentialMode::None, None);
+        backend.queue_session(Some(63));
+        manager.connect(profile_id.to_string()).await.unwrap();
+
+        let config = std::fs::read_to_string(backend.last_request().unwrap().config_path).unwrap();
+        assert!(!config.contains("remap-usr1"));
+    }
+
+    #[tokio::test]
+    async fn disconnect_while_openvpn_starts_stops_the_new_process() {
+        let (manager, backend, profile_id, _, _) = build_manager(CredentialMode::None, None);
+        let manager = Arc::new(manager);
+        let _session = backend.queue_session(Some(71));
+        let weak = Arc::downgrade(&manager);
+        *backend.on_connect.lock() = Some(Box::new(move || {
+            let manager = weak.upgrade().unwrap();
+            assert_eq!(manager.snapshot().state, ConnectionState::PreparingRuntime);
+            run_now(manager.disconnect()).unwrap();
+        }));
+
+        manager.connect(profile_id.to_string()).await.unwrap();
+
+        let snapshot = manager.snapshot();
+        assert_eq!(snapshot.state, ConnectionState::Idle);
+        assert!(snapshot.last_error.is_none());
+        // The process that started after the cancel was stopped, not adopted.
+        assert_eq!(backend.disconnect_count(), 1);
+        assert!(!backend.last_request().unwrap().runtime_dir.exists());
     }
 }
