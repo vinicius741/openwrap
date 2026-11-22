@@ -159,13 +159,43 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Could not download the released OpenWrap-Windows-Setup.exe" }
           $oldInstaller = Join-Path $prev "OpenWrap-Windows-Setup.exe"
           $newInstaller = (Get-ChildItem -Path target/release/bundle/nsis -Filter "*.exe" | Select-Object -First 1).FullName
-          $installDir = Join-Path $env:ProgramFiles "OpenWrap"
-          $installedExe = Join-Path $installDir "openwrap-app.exe"
+
+          # Where the installer put OpenWrap, from its uninstall registry entry
+          # (what the in-app updater relies on too), with a file-system fallback.
+          function Find-OpenWrapInstall {
+            $keys = @(
+              "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*",
+              "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*",
+              "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*"
+            )
+            $entry = Get-ItemProperty -Path $keys -ErrorAction SilentlyContinue |
+              Where-Object { $_.DisplayName -eq "OpenWrap" } | Select-Object -First 1
+            if ($entry -and $entry.UninstallString) {
+              $dir = Split-Path -Parent ($entry.UninstallString.Trim('"'))
+              if (Test-Path (Join-Path $dir "openwrap-app.exe")) { return $dir }
+            }
+            foreach ($dir in @((Join-Path $env:ProgramFiles "OpenWrap"), (Join-Path ${env:ProgramFiles(x86)} "OpenWrap"), (Join-Path $env:LOCALAPPDATA "Programs\OpenWrap"), (Join-Path $env:LOCALAPPDATA "OpenWrap"))) {
+              if ($dir -and (Test-Path (Join-Path $dir "openwrap-app.exe"))) { return $dir }
+            }
+            return $null
+          }
 
           Write-Host "Installing the released build..."
           $p = Start-Process -FilePath $oldInstaller -ArgumentList "/S" -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "Released installer exited with $($p.ExitCode)" }
-          if (-not (Test-Path $installedExe)) { throw "Released build not installed at $installedExe" }
+          $installDir = $null
+          for ($i = 0; $i -lt 60 -and -not $installDir; $i++) {
+            $installDir = Find-OpenWrapInstall
+            if (-not $installDir) { Start-Sleep -Seconds 1 }
+          }
+          if (-not $installDir) {
+            Get-ItemProperty -Path "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*", "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue |
+              Where-Object { $_.DisplayName -like "*OpenWrap*" } | Format-List DisplayName, UninstallString, InstallLocation | Out-String | Write-Host
+            Get-ChildItem -Path $env:ProgramFiles, $env:LOCALAPPDATA -Filter "openwrap-app.exe" -Recurse -Depth 3 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "found: $($_.FullName)" }
+            throw "Released build was not found after a silent install"
+          }
+          $installedExe = Join-Path $installDir "openwrap-app.exe"
+          Write-Host "Released build installed at $installDir"
 
           $dataDir = Join-Path $env:LOCALAPPDATA "OpenWrap"
           New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
