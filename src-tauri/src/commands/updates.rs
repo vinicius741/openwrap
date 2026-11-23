@@ -112,6 +112,13 @@ fn build_updater(app: &AppHandle) -> Result<tauri_plugin_updater::Updater, Comma
                 if let Some(state) = handle.try_state::<AppState>() {
                     state.shutdown();
                 }
+                // The plugin ends the process with `exit(0)`, which skips
+                // Tauri's cleanup; remove the tray icon now so no ghost icon
+                // stays in the notification area.
+                let _ = handle.remove_tray_by_id(crate::tray::TRAY_ID);
+                for window in handle.webview_windows().values() {
+                    let _ = window.hide();
+                }
             })
     };
     builder
@@ -161,7 +168,7 @@ pub async fn install_update(
     let mut downloaded: u64 = 0;
     let mut last_progress = None;
     let progress_handle = app.clone();
-    update
+    let result = update
         .download_and_install(
             move |chunk_length, total| {
                 downloaded += chunk_length as u64;
@@ -180,8 +187,16 @@ pub async fn install_update(
             },
             || {},
         )
-        .await
-        .map_err(|error| update_error("Update failed", error))?;
+        .await;
+    if let Err(error) = result {
+        // Keep the update so "Update and restart" can be retried.
+        pending
+            .0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get_or_insert(update);
+        return Err(update_error("Update failed", error));
+    }
 
     if let Some(state) = app.try_state::<AppState>() {
         state.shutdown();

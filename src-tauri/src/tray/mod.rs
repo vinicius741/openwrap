@@ -3,6 +3,8 @@ mod menu;
 mod presenter;
 mod target;
 
+#[cfg(windows)]
+pub(crate) use menu::TRAY_ID;
 pub use presenter::{sync_connection_state, sync_selected_profile};
 
 use crate::app_state::AppState;
