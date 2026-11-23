@@ -32,7 +32,7 @@ pub fn configure_generated_password_profile(
     }
 
     let pin = pin.trim();
-    if pin.len() != 4 || !pin.chars().all(|ch| ch.is_ascii_digit()) {
+    if !openwrap_core::connection::manager::is_valid_pin(pin) {
         return Err(CommandError::from(openwrap_core::AppError::Settings(
             "PIN must contain exactly 4 digits.".into(),
         )));

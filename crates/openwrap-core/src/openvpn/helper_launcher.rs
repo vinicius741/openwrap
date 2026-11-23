@@ -2,7 +2,8 @@ use std::collections::HashMap;
 use std::io::ErrorKind;
 use std::path::PathBuf;
 use std::process::{Command as ProcessCommand, Stdio};
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex as StdMutex};
+use std::time::Duration;
 
 use parking_lot::Mutex;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -15,10 +16,43 @@ use crate::openvpn::backend::{BackendEvent, ConnectRequest, ReconcileDnsRequest,
 use crate::openvpn::helper_protocol::HelperEvent;
 use crate::VpnBackend;
 
+/// How long app shutdown waits for the helper to exit after SIGTERM. OpenVPN
+/// runs the DNS `down` script before it exits, so waiting lets DNS be
+/// restored before the runtime directory (and that script) is deleted.
+const HELPER_SHUTDOWN_EXIT_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// How long to wait for the helper's last output lines after it exits.
+const OUTPUT_DRAIN_TIMEOUT: Duration = Duration::from_millis(500);
+
 #[derive(Debug)]
 struct ChildHandle {
     pid: Option<u32>,
     child: Arc<AsyncMutex<Child>>,
+    exited: Arc<ExitSignal>,
+}
+
+/// Set once the helper process has exited. Waitable without a Tokio runtime,
+/// because shutdown runs on the main thread during app termination.
+#[derive(Debug, Default)]
+struct ExitSignal {
+    exited: StdMutex<bool>,
+    changed: Condvar,
+}
+
+impl ExitSignal {
+    fn notify(&self) {
+        *self.exited.lock().unwrap_or_else(|e| e.into_inner()) = true;
+        self.changed.notify_all();
+    }
+
+    fn wait(&self, timeout: Duration) -> bool {
+        let guard = self.exited.lock().unwrap_or_else(|e| e.into_inner());
+        let (guard, _) = self
+            .changed
+            .wait_timeout_while(guard, timeout, |exited| !*exited)
+            .unwrap_or_else(|e| e.into_inner());
+        *guard
+    }
 }
 
 #[derive(Debug)]
@@ -52,12 +86,14 @@ impl VpnBackend for HelperOpenVpnBackend {
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
         let child = Arc::new(AsyncMutex::new(child));
+        let exited = Arc::new(ExitSignal::default());
 
         self.children.lock().insert(
             request.session_id.clone(),
             ChildHandle {
                 pid,
                 child: child.clone(),
+                exited: exited.clone(),
             },
         );
 
@@ -71,7 +107,7 @@ impl VpnBackend for HelperOpenVpnBackend {
             });
         }
 
-        if let Some(stdout) = stdout {
+        let stdout_task = stdout.map(|stdout| {
             let tx = event_tx.clone();
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stdout).lines();
@@ -93,18 +129,18 @@ impl VpnBackend for HelperOpenVpnBackend {
                         }
                     }
                 }
-            });
-        }
+            })
+        });
 
-        if let Some(stderr) = stderr {
+        let stderr_task = stderr.map(|stderr| {
             let tx = event_tx.clone();
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stderr).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
                     let _ = tx.send(BackendEvent::Stderr(format!("helper: {line}")));
                 }
-            });
-        }
+            })
+        });
 
         {
             let tx = event_tx.clone();
@@ -113,7 +149,20 @@ impl VpnBackend for HelperOpenVpnBackend {
             let session_id = request.session_id.clone();
             tokio::spawn(async move {
                 let status = child.lock().await.wait().await.ok();
+                exited.notify();
                 children.lock().remove(&session_id);
+                // Deliver OpenVPN's last lines (AUTH_FAILED, the fatal error)
+                // before Exited: the connection manager stops reading at
+                // Exited and decides between retry and error from them.
+                let drain = async {
+                    if let Some(task) = stdout_task {
+                        let _ = task.await;
+                    }
+                    if let Some(task) = stderr_task {
+                        let _ = task.await;
+                    }
+                };
+                let _ = tokio::time::timeout(OUTPUT_DRAIN_TIMEOUT, drain).await;
                 let _ = tx.send(BackendEvent::Exited(
                     status.and_then(|status| status.code()),
                 ));
@@ -151,6 +200,27 @@ impl VpnBackend for HelperOpenVpnBackend {
                     let _ = child.wait().await;
                 });
             }
+        }
+        Ok(())
+    }
+
+    fn disconnect_on_shutdown(&self, session_id: SessionId) -> Result<(), AppError> {
+        let Some(handle) = self.children.lock().remove(&session_id) else {
+            return Ok(());
+        };
+        if let Some(pid) = handle.pid {
+            let _ = ProcessCommand::new("/bin/kill")
+                .arg("-TERM")
+                .arg(pid.to_string())
+                .status();
+        }
+        // The helper exits after OpenVPN, which exits after its DNS `down`
+        // script. Bounded so a stuck helper never blocks quitting.
+        if !handle.exited.wait(HELPER_SHUTDOWN_EXIT_TIMEOUT) {
+            eprintln!(
+                "warning: openwrap-helper did not exit within {}s of SIGTERM during shutdown",
+                HELPER_SHUTDOWN_EXIT_TIMEOUT.as_secs()
+            );
         }
         Ok(())
     }
@@ -239,7 +309,25 @@ fn validate_helper_binary(_path: &PathBuf) -> Result<(), AppError> {
 
 #[cfg(test)]
 mod tests {
-    use super::reconcile_dns_error_message;
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    use super::{reconcile_dns_error_message, ExitSignal};
+
+    #[test]
+    fn exit_signal_wakes_waiters_and_times_out_when_unset() {
+        let signal = Arc::new(ExitSignal::default());
+        let started = Instant::now();
+        assert!(!signal.wait(Duration::from_millis(20)));
+        assert!(started.elapsed() >= Duration::from_millis(20));
+
+        let notifier = signal.clone();
+        let thread = std::thread::spawn(move || notifier.notify());
+        assert!(signal.wait(Duration::from_secs(5)));
+        thread.join().unwrap();
+        // Already set: returns at once.
+        assert!(signal.wait(Duration::ZERO));
+    }
 
     #[test]
     fn maps_outdated_helper_usage_to_actionable_error() {

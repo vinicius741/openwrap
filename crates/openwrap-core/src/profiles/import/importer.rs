@@ -5,7 +5,7 @@ use std::sync::Arc;
 use chrono::Utc;
 
 use crate::app_state::AppPaths;
-use crate::config::{parse_profile, rewrite_profile};
+use crate::config::{parse_profile, rewrite_profile, validate_openvpn_config_text};
 use crate::dns::DnsPolicy;
 use crate::errors::AppError;
 use crate::profiles::repository::ProfileRepository;
@@ -114,11 +114,13 @@ impl ProfileImporter {
             });
         }
 
+        let managed_ovpn = rewrite_profile(&parsed, &rewritten_assets);
+        if let Err(error) = validate_openvpn_config_text(&managed_ovpn) {
+            let _ = fs::remove_dir_all(&managed_dir);
+            return Err(error);
+        }
         let managed_ovpn_path = managed_dir.join("profile.ovpn");
-        fs::write(
-            &managed_ovpn_path,
-            rewrite_profile(&parsed, &rewritten_assets),
-        )?;
+        fs::write(&managed_ovpn_path, managed_ovpn)?;
 
         let validation_status = if warnings.is_empty() {
             ValidationStatus::Ok

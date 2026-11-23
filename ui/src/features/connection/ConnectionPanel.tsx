@@ -1,7 +1,7 @@
 import { normalizeCommandError } from '../../lib/tauri'
 import { revealConnectionLogInFinder } from '../logs/api'
 import { useAppStore } from '../../store/appStore'
-import { isConnected, getDnsStatusMessage } from './model/status'
+import { getDnsStatusMessage } from './model/status'
 import { ConnectionSummary } from './components/ConnectionSummary'
 import { ConnectionControls } from './components/ConnectionControls'
 import { ConnectionMetadata } from './components/ConnectionMetadata'

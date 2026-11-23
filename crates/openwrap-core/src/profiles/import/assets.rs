@@ -78,7 +78,14 @@ impl AssetPipeline {
 
         let relative_path = format!("assets/{}", asset.kind.file_name());
         let target = self.managed_dir.join(&relative_path);
-        fs::copy(&resolved, &target).ok()?;
+        if let Err(error) = fs::copy(&resolved, &target) {
+            self.report.errors.push(format!(
+                "Line {}: could not copy {}: {error}",
+                asset.line,
+                resolved.display()
+            ));
+            return None;
+        }
         self.report.copied_assets.push(relative_path.clone());
         self.report
             .rewritten_paths
@@ -86,7 +93,16 @@ impl AssetPipeline {
         self.rewritten_assets
             .insert(asset.kind.clone(), relative_path.clone());
 
-        let bytes = fs::read(&target).ok()?;
+        let bytes = match fs::read(&target) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                self.report.errors.push(format!(
+                    "Line {}: could not read the copied {}: {error}",
+                    asset.line, relative_path
+                ));
+                return None;
+            }
+        };
         Some(build_asset(
             profile_id.clone(),
             asset.kind.clone(),
@@ -116,7 +132,13 @@ impl AssetPipeline {
 
         let relative_path = format!("assets/{}", inline.kind.file_name());
         let target = self.managed_dir.join(&relative_path);
-        fs::write(&target, &inline.content).ok()?;
+        if let Err(error) = fs::write(&target, &inline.content) {
+            self.report.errors.push(format!(
+                "Line {}: could not save inline <{}>: {error}",
+                inline.line, inline.directive
+            ));
+            return None;
+        }
         self.report.copied_assets.push(relative_path.clone());
         self.report
             .rewritten_paths
@@ -177,7 +199,19 @@ fn resolve_asset_path(source_dir: &Path, candidate: &Path) -> Result<PathBuf, Ap
     }
 
     if candidate_path.exists() {
-        fs::canonicalize(&candidate_path).map_err(AppError::from)
+        // The parent check above does not cover a symlinked file: resolve the
+        // target and make sure it is still inside the import directory.
+        let canonical = fs::canonicalize(&candidate_path)?;
+        if !canonical.starts_with(source_dir) {
+            return Err(AppError::Validation {
+                title: "Path traversal detected".into(),
+                message: "Referenced asset is a link to a file outside the import directory."
+                    .into(),
+                directive: None,
+                line: None,
+            });
+        }
+        Ok(canonical)
     } else {
         Ok(candidate_path)
     }

@@ -10,7 +10,7 @@ const timeFormatter = new Intl.DateTimeFormat(undefined, {
 
 const LogLine = memo(function LogLine({ log }: { log: UiLogEntry }) {
   return (
-    <div className={`log-line log-${log.level.toLowerCase()}`}>
+    <div className={`log-line log-${log.level}`}>
       <span className="log-meta">{timeFormatter.format(new Date(log.ts))}</span>
       <span className="log-stream">{log.stream}</span>
       <span className="log-message">{log.message}</span>

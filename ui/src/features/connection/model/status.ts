@@ -13,16 +13,17 @@ export function hasActiveSession(connection: ConnectionSnapshot | null | undefin
   )
 }
 
-export function isConnected(connection: ConnectionSnapshot | null | undefined): boolean {
-  if (!connection) {
-    return false
-  }
-  return (
-    connection.state === 'connected' ||
-    connection.state === 'connecting' ||
-    connection.state === 'reconnecting' ||
-    connection.state === 'awaiting_credentials'
-  )
+/** Connect starts a new attempt only from Idle or Error. */
+export function canConnect(connection: ConnectionSnapshot | null | undefined): boolean {
+  return !connection || connection.state === 'idle' || connection.state === 'error'
+}
+
+/**
+ * Disconnect also cancels an attempt that is still validating, preparing or
+ * starting OpenVPN, so no state can leave both buttons unusable.
+ */
+export function canDisconnect(connection: ConnectionSnapshot | null | undefined): boolean {
+  return hasActiveSession(connection)
 }
 
 export function getDnsStatusMessage(observation: DnsObservation | undefined): string | null {

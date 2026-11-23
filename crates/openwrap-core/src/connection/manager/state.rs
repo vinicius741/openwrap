@@ -8,8 +8,10 @@ use crate::app_state::AppPaths;
 use crate::connection::{ConnectionSnapshot, ConnectionState, LogEntry, SessionId};
 use crate::logging::SharedSessionLogManager;
 use crate::profiles::{ProfileDetail, ProfileId};
-use crate::secrets::{totp::generate_totp, StoredSecret, StoredSecretKind};
+use crate::secrets::StoredSecretKind;
 use crate::{ProfileRepository, SecretStore, VpnBackend};
+
+use super::credentials::{generate_password, PlanCredentials};
 
 pub const MAX_LOG_ENTRIES: usize = 500;
 
@@ -43,6 +45,12 @@ pub struct ManagerState {
     pub active_session: Option<ActiveSession>,
     pub reconnect_plan: Option<ConnectionPlan>,
     pub next_generation: u64,
+    /// Generation of the attempt that is preparing or spawning OpenVPN and has
+    /// no `active_session` yet. Disconnect clears it, which tells the attempt
+    /// to stop the process it just started instead of adopting it.
+    pub pending_attempt: Option<u64>,
+    /// TOTP step of the last generated password sent to the server.
+    pub last_otp_step: Option<u64>,
 }
 
 impl Default for ManagerState {
@@ -54,6 +62,8 @@ impl Default for ManagerState {
             active_session: None,
             reconnect_plan: None,
             next_generation: 0,
+            pending_attempt: None,
+            last_otp_step: None,
         }
     }
 }
@@ -61,8 +71,13 @@ impl Default for ManagerState {
 #[derive(Clone)]
 pub struct ConnectionPlan {
     pub detail: ProfileDetail,
-    pub username: Option<String>,
-    pub password: Option<String>,
+    pub credentials: PlanCredentials,
+}
+
+/// What `connect` needs before it can start an attempt.
+enum ConnectCredentials {
+    Ready(PlanCredentials),
+    Prompt { saved_username: Option<String> },
 }
 
 pub struct ConnectionManager {
@@ -148,45 +163,92 @@ impl ConnectionManager {
             Some(profile_id.clone()),
         )?;
 
-        if detail.profile.credential_mode == crate::profiles::CredentialMode::UserPass {
-            let stored_secret = self.secret_store.get_password(&profile_id)?;
-
-            if detail.profile.credential_strategy == crate::profiles::CredentialStrategy::PinTotp {
-                let configured = stored_secret.ok_or_else(|| {
-                    crate::errors::AppError::Settings(
-                        "This profile is set to generate its VPN password automatically, but no local generated-password configuration is saved yet.".into(),
-                    )
-                })?;
-                let (username, password) = resolve_generated_password(&configured)?;
-                return self
-                    .start_connect(detail, Some(username), Some(password), false)
-                    .await;
+        // Any failure from here on must leave a terminal state; otherwise the
+        // snapshot stays in ValidatingProfile, where Connect is an invalid
+        // transition.
+        let credentials = match self.resolve_connect_credentials(&detail, &profile_id) {
+            Ok(credentials) => credentials,
+            Err(error) => {
+                self.fail_if_in(&profile_id, ConnectionState::ValidatingProfile, &error);
+                return Err(error);
             }
+        };
 
-            let saved_username = stored_secret.and_then(|secret| {
-                (secret.kind == StoredSecretKind::UsernameOnly).then_some(secret.username)
-            });
-
-            {
-                let mut state = self.state.lock();
-                state.pending_credentials = Some(PendingCredentials {
-                    profile: detail.clone(),
-                });
+        match credentials {
+            ConnectCredentials::Ready(credentials) => {
+                self.start_connect(detail, credentials, false).await
             }
-            self.transition_snapshot(
-                crate::connection::state_machine::ConnectionIntent::NeedCredentials,
-                Some(profile_id.clone()),
-            )?;
-            let prompt = crate::connection::CredentialPrompt {
-                profile_id,
-                remember_supported: true,
-                saved_username,
-            };
-            let _ = self.events.send(CoreEvent::CredentialsRequested(prompt));
-            return Ok(self.snapshot());
+            ConnectCredentials::Prompt { saved_username } => {
+                {
+                    let mut state = self.state.lock();
+                    state.pending_credentials = Some(PendingCredentials {
+                        profile: detail.clone(),
+                    });
+                }
+                self.transition_snapshot(
+                    crate::connection::state_machine::ConnectionIntent::NeedCredentials,
+                    Some(profile_id.clone()),
+                )?;
+                let prompt = crate::connection::CredentialPrompt {
+                    profile_id,
+                    remember_supported: true,
+                    saved_username,
+                };
+                let _ = self.events.send(CoreEvent::CredentialsRequested(prompt));
+                Ok(self.snapshot())
+            }
+        }
+    }
+
+    fn resolve_connect_credentials(
+        &self,
+        detail: &ProfileDetail,
+        profile_id: &ProfileId,
+    ) -> Result<ConnectCredentials, crate::errors::AppError> {
+        if detail.profile.credential_mode != crate::profiles::CredentialMode::UserPass {
+            return Ok(ConnectCredentials::Ready(PlanCredentials::None));
         }
 
-        self.start_connect(detail, None, None, false).await
+        let stored_secret = self.secret_store.get_password(profile_id)?;
+
+        if detail.profile.credential_strategy == crate::profiles::CredentialStrategy::PinTotp {
+            let configured = stored_secret.ok_or_else(|| {
+                crate::errors::AppError::Settings(
+                    "This profile is set to generate its VPN password automatically, but no local generated-password configuration is saved yet.".into(),
+                )
+            })?;
+            // Validate the saved PIN and TOTP secret now so a broken setup
+            // fails before OpenVPN starts. Each attempt generates its own code.
+            generate_password(&configured, Utc::now())?;
+            return Ok(ConnectCredentials::Ready(PlanCredentials::Generated(
+                configured,
+            )));
+        }
+
+        let saved_username = stored_secret.and_then(|secret| {
+            (secret.kind == StoredSecretKind::UsernameOnly).then_some(secret.username)
+        });
+        Ok(ConnectCredentials::Prompt { saved_username })
+    }
+
+    /// Puts the snapshot into `Error`, but only while it is still `expected`,
+    /// so a failure never overwrites a disconnect that happened meanwhile.
+    fn fail_if_in(
+        &self,
+        profile_id: &ProfileId,
+        expected: ConnectionState,
+        error: &crate::errors::AppError,
+    ) {
+        let mut state = self.state.lock();
+        if state.snapshot.state == expected {
+            super::connect::terminal_error_locked(
+                &self.paths,
+                &mut state,
+                &self.events,
+                profile_id,
+                error,
+            );
+        }
     }
 
     pub async fn submit_credentials(
@@ -198,9 +260,41 @@ impl ConnectionManager {
             let pending = state.pending_credentials.take().ok_or_else(|| {
                 crate::errors::AppError::ConnectionState("no pending credential prompt".into())
             })?;
+            // The submission names the profile whose saved username it
+            // changes; it must be the profile that asked for credentials.
+            if pending.profile.profile.id != submission.profile_id {
+                state.pending_credentials = Some(pending);
+                return Err(crate::errors::AppError::ConnectionState(
+                    "credentials were submitted for a different profile".into(),
+                ));
+            }
             pending.profile
         };
 
+        if let Err(error) = self.remember_username(&submission) {
+            self.fail_if_in(
+                &submission.profile_id,
+                ConnectionState::AwaitingCredentials,
+                &error,
+            );
+            return Err(error);
+        }
+
+        self.start_connect(
+            profile,
+            PlanCredentials::Static {
+                username: submission.username,
+                password: submission.password,
+            },
+            false,
+        )
+        .await
+    }
+
+    fn remember_username(
+        &self,
+        submission: &crate::connection::CredentialSubmission,
+    ) -> Result<(), crate::errors::AppError> {
         if submission.remember_in_keychain {
             self.secret_store
                 .set_password(crate::secrets::StoredSecret::username_only(
@@ -214,19 +308,19 @@ impl ConnectionManager {
             self.repository
                 .update_has_saved_credentials(&submission.profile_id, false)?;
         }
-
-        self.start_connect(
-            profile,
-            Some(submission.username),
-            Some(submission.password),
-            false,
-        )
-        .await
+        Ok(())
     }
 
     pub async fn disconnect(&self) -> Result<ConnectionSnapshot, crate::errors::AppError> {
+        // Cancel any in-flight attempt in the same critical section that reads
+        // the session. Otherwise an attempt could be adopted after the read
+        // and `finish_disconnect` would forget its session without stopping
+        // OpenVPN. A cancelled attempt stops its own process (see connect.rs).
         let session = {
-            let state = self.state.lock();
+            let mut state = self.state.lock();
+            state.pending_credentials = None;
+            state.reconnect_plan = None;
+            state.pending_attempt = None;
             state.active_session.clone()
         };
 
@@ -235,7 +329,6 @@ impl ConnectionManager {
                 crate::connection::state_machine::ConnectionIntent::BeginDisconnect,
                 self.snapshot().profile_id.clone(),
             )?;
-            self.clear_pending_connect_state();
             crate::connection::manager::cleanup_auth_file(&session);
             self.backend.disconnect(session.session_id.clone())?;
             return Ok(self.snapshot());
@@ -257,6 +350,7 @@ impl ConnectionManager {
             let mut state = self.state.lock();
             state.pending_credentials = None;
             state.reconnect_plan = None;
+            state.pending_attempt = None;
             state.active_session.clone()
         };
 
@@ -313,14 +407,12 @@ impl ConnectionManager {
     pub(super) async fn start_connect(
         &self,
         detail: ProfileDetail,
-        username: Option<String>,
-        password: Option<String>,
+        credentials: PlanCredentials,
         is_retry: bool,
     ) -> Result<ConnectionSnapshot, crate::errors::AppError> {
         let plan = ConnectionPlan {
             detail,
-            username,
-            password,
+            credentials,
         };
         crate::connection::manager::connect::start_connect_attempt(
             self.paths.clone(),
@@ -355,16 +447,11 @@ impl ConnectionManager {
         Ok(())
     }
 
-    pub(super) fn clear_pending_connect_state(&self) {
-        let mut state = self.state.lock();
-        state.pending_credentials = None;
-        state.reconnect_plan = None;
-    }
-
     pub(super) fn finish_disconnect(&self) {
         let mut state = self.state.lock();
         state.pending_credentials = None;
         state.reconnect_plan = None;
+        state.pending_attempt = None;
         state.active_session = None;
         state.snapshot = ConnectionSnapshot::default();
         let _ = self
@@ -374,35 +461,6 @@ impl ConnectionManager {
             state.snapshot.dns_observation.clone(),
         ));
     }
-}
-
-fn resolve_generated_password(
-    secret: &StoredSecret,
-) -> Result<(String, String), crate::errors::AppError> {
-    if secret.kind != StoredSecretKind::PinTotp {
-        return Err(crate::errors::AppError::Settings(
-            "This profile expects a generated VPN password, but the saved local credentials are not in the generated-password format.".into(),
-        ));
-    }
-
-    let pin = secret.pin.as_deref().ok_or_else(|| {
-        crate::errors::AppError::Settings(
-            "The generated-password profile is missing its saved PIN.".into(),
-        )
-    })?;
-    if pin.len() != 4 || !pin.chars().all(|ch| ch.is_ascii_digit()) {
-        return Err(crate::errors::AppError::Settings(
-            "The saved VPN PIN must contain exactly 4 digits.".into(),
-        ));
-    }
-
-    let totp_secret = secret.totp_secret.as_deref().ok_or_else(|| {
-        crate::errors::AppError::Settings(
-            "The generated-password profile is missing its saved TOTP secret.".into(),
-        )
-    })?;
-    let otp = generate_totp(totp_secret, Utc::now())?;
-    Ok((secret.username.clone(), format!("{pin}{otp}")))
 }
 
 impl Drop for ConnectionManager {

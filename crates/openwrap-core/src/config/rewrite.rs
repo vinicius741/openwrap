@@ -17,7 +17,7 @@ pub fn rewrite_profile(
         if let Some(kind) = AssetKind::from_directive(&directive.name) {
             if let Some(path) = rewritten_assets.get(&kind) {
                 let mut parts = vec![directive.name.clone(), path.clone()];
-                parts.extend(directive.args.iter().skip(1).cloned());
+                parts.extend(directive.args.iter().skip(1).map(|arg| quote_arg(arg)));
                 output.push(parts.join(" "));
                 continue;
             }
@@ -29,7 +29,7 @@ pub fn rewrite_profile(
         }
 
         let mut parts = vec![directive.name.clone()];
-        parts.extend(directive.args.clone());
+        parts.extend(directive.args.iter().map(|arg| quote_arg(arg)));
         output.push(parts.join(" "));
     }
 
@@ -44,6 +44,19 @@ pub fn rewrite_profile(
     }
 
     output.join("\n") + "\n"
+}
+
+/// Restores the quotes the tokenizer removed, so an argument with spaces
+/// (e.g. `verify-x509-name "VPN Server" name`) stays one argument.
+///
+/// The tokenizer keeps backslashes as written, so they are written back
+/// unchanged; only arguments that need quotes get them.
+fn quote_arg(arg: &str) -> String {
+    if arg.is_empty() || arg.chars().any(char::is_whitespace) {
+        format!("\"{arg}\"")
+    } else {
+        arg.to_string()
+    }
 }
 
 #[cfg(test)]
@@ -65,5 +78,23 @@ mod tests {
         );
 
         assert_eq!(rewritten, "tls-auth assets/tls-auth.key 1\nauth-nocache\n");
+    }
+
+    #[test]
+    fn keeps_quoted_arguments_with_spaces_together() {
+        let parsed = parse_profile(
+            "verify-x509-name \"VPN Server CN\" name\nremote vpn.example.com 1194\n",
+            Path::new("/tmp"),
+        )
+        .unwrap();
+        let rewritten = rewrite_profile(&parsed, &HashMap::new());
+
+        assert_eq!(
+            rewritten,
+            "verify-x509-name \"VPN Server CN\" name\nremote vpn.example.com 1194\nauth-nocache\n"
+        );
+        // And it parses back to the same arguments.
+        let reparsed = parse_profile(&rewritten, Path::new("/tmp")).unwrap();
+        assert_eq!(reparsed.directives[0].args, vec!["VPN Server CN", "name"]);
     }
 }

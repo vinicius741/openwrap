@@ -144,7 +144,7 @@ impl UnreadableDirectory {
     fn new(path: PathBuf) -> Self {
         use std::os::unix::fs::PermissionsExt;
         let permissions = fs::metadata(&path).unwrap().permissions();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0)).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o000)).unwrap();
         Self { path, permissions }
     }
 }

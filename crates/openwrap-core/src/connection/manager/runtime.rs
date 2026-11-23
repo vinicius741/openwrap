@@ -4,10 +4,11 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use crate::app_state::AppPaths;
-use crate::config::{parse_profile, rewrite_profile};
+use crate::config::{parse_profile, rewrite_profile, validate_openvpn_config_text};
 use crate::errors::AppError;
 use crate::openvpn::VpnBackendMode;
-use crate::profiles::{ProfileDetail, ProfileId};
+use crate::profiles::import::{blocked_findings, validate_directives};
+use crate::profiles::{CredentialMode, CredentialStrategy, ProfileDetail, ProfileId};
 
 const AUTH_FILE_NAME: &str = "auth.txt";
 const LAUNCH_CONFIG_FILE_NAME: &str = "profile.ovpn";
@@ -80,6 +81,22 @@ pub fn write_launch_config(
 ) -> Result<(PathBuf, Vec<PathBuf>), AppError> {
     let source = fs::read_to_string(&detail.profile.managed_ovpn_path)?;
     let parsed = parse_profile(&source, &detail.profile.managed_dir)?;
+    // The stored profile is a file on disk; check it again rather than trust
+    // that it is still what the import accepted.
+    if let Some(finding) = blocked_findings(&validate_directives(&parsed))
+        .into_iter()
+        .next()
+    {
+        return Err(AppError::Validation {
+            title: "Profile contains a blocked directive".into(),
+            message: format!(
+                "{} Re-import the profile from its original file.",
+                finding.message
+            ),
+            directive: Some(finding.directive),
+            line: Some(finding.line),
+        });
+    }
     let rewritten_assets = match backend_mode {
         VpnBackendMode::ExternalProcess => detail
             .assets
@@ -115,6 +132,12 @@ pub fn write_launch_config(
         }
     };
     let mut launch_config = rewrite_profile(&parsed, &rewritten_assets);
+    if backend_mode == VpnBackendMode::ExternalProcess && uses_generated_password(detail) {
+        // OpenVPN re-reads auth.txt on a soft restart (ping-restart after
+        // sleep, network change), but the one-time password in it has expired
+        // by then. Exit instead, so OpenWrap retries with a fresh password.
+        launch_config.push_str("remap-usr1 SIGTERM\n");
+    }
     #[cfg(target_os = "macos")]
     let extra_cleanup_paths = if backend_mode == VpnBackendMode::ExternalProcess {
         crate::dns::append_macos_launch_dns_config(
@@ -136,9 +159,20 @@ pub fn write_launch_config(
     #[cfg(not(target_os = "macos"))]
     let extra_cleanup_paths = Vec::new();
 
+    if let Err(error) = validate_openvpn_config_text(&launch_config) {
+        for path in &extra_cleanup_paths {
+            let _ = fs::remove_dir_all(path);
+        }
+        return Err(error);
+    }
     let launch_config_path = runtime_dir.join(LAUNCH_CONFIG_FILE_NAME);
     fs::write(&launch_config_path, launch_config)?;
     Ok((launch_config_path, extra_cleanup_paths))
+}
+
+fn uses_generated_password(detail: &ProfileDetail) -> bool {
+    detail.profile.credential_mode == CredentialMode::UserPass
+        && detail.profile.credential_strategy == CredentialStrategy::PinTotp
 }
 
 pub fn quote_openvpn_arg(path: &Path) -> String {

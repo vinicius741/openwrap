@@ -1,21 +1,12 @@
 import { connectProfile, disconnectProfile, submitCredentials } from '../../features/connection/api'
-import { normalizeCommandError } from '../../lib/tauri'
-import type { ConnectionSnapshot, ProfileSummary, UserFacingError } from '../../types/ipc'
+import type { ConnectionSnapshot } from '../../types/ipc'
 
 export async function connectSelected(profileId: string): Promise<ConnectionSnapshot> {
   return connectProfile(profileId)
 }
 
-export function connectSelectedError(error: unknown): { error: UserFacingError } {
-  return { error: normalizeCommandError(error) }
-}
-
 export async function disconnect(): Promise<ConnectionSnapshot> {
   return disconnectProfile()
-}
-
-export function disconnectError(error: unknown): { error: UserFacingError } {
-  return { error: normalizeCommandError(error) }
 }
 
 export async function submitCredentialsAction(input: {
@@ -32,6 +23,3 @@ export async function submitCredentialsAction(input: {
   })
 }
 
-export function submitCredentialsError(error: unknown): { error: UserFacingError } {
-  return { error: normalizeCommandError(error) }
-}

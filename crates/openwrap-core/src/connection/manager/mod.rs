@@ -1,4 +1,5 @@
 mod connect;
+mod credentials;
 mod errors;
 mod events;
 mod runtime;
@@ -6,6 +7,7 @@ mod state;
 mod tests;
 
 pub use connect::submit_credentials;
+pub use credentials::{is_valid_pin, PlanCredentials};
 pub use errors::{
     apply_reconcile_result, apply_terminal_error, dns_restore_error, process_exit_error,
 };

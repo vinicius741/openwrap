@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use chrono::Utc;
 use parking_lot::Mutex;
 use tokio::sync::broadcast;
 
@@ -15,6 +16,7 @@ use crate::openvpn::ReconcileDnsRequest;
 use crate::profiles::ProfileId;
 use crate::{ProfileRepository, VpnBackend};
 
+use super::credentials::retry_delay_for_fresh_otp;
 use super::errors::{
     apply_reconcile_result, apply_terminal_error, dns_restore_error, persist_failed_connection_log,
     process_exit_error,
@@ -65,21 +67,31 @@ pub fn handle_log(
 
         match signal {
             crate::connection::log_parser::ParsedLogSignal::Connected => {
-                state_guard.snapshot.state = ConnectionState::Connected;
-                state_guard.snapshot.substate = None;
-                state_guard.snapshot.log_file_path = None;
-                state_guard.snapshot.last_error = None;
-                emit_state_changed = true;
-                session_log.log_core("State transition: Connected");
+                // A late "Initialization Sequence Completed" must not undo a
+                // disconnect the user already asked for.
+                if matches!(
+                    state_guard.snapshot.state,
+                    ConnectionState::StartingProcess
+                        | ConnectionState::Connecting
+                        | ConnectionState::Reconnecting
+                ) {
+                    state_guard.snapshot.state = ConnectionState::Connected;
+                    state_guard.snapshot.substate = None;
+                    state_guard.snapshot.log_file_path = None;
+                    state_guard.snapshot.last_error = None;
+                    // A working tunnel earns a fresh retry budget, so a long
+                    // session survives more than three drops in its lifetime.
+                    state_guard.snapshot.retry_count = 0;
+                    emit_state_changed = true;
+                    session_log.log_core("State transition: Connected");
+                }
             }
             crate::connection::log_parser::ParsedLogSignal::AuthFailed => {
-                let error = UserFacingError {
-                    code: "auth_failed".into(),
-                    title: "Authentication failed".into(),
-                    message: "OpenVPN reported an authentication failure.".into(),
-                    suggested_fix: Some("Re-enter your username and password.".into()),
-                    details_safe: None,
-                };
+                let generated = state_guard
+                    .reconnect_plan
+                    .as_ref()
+                    .is_some_and(|plan| plan.credentials.is_generated());
+                let error = auth_failed_error(generated);
                 let log_file_path = persist_failed_connection_log(paths, &state_guard.logs);
                 apply_terminal_error(&mut state_guard.snapshot, log_file_path, profile_id, error);
                 state_guard.pending_credentials = None;
@@ -240,8 +252,13 @@ pub fn handle_exit(
         return ExitAction::Stop;
     }
 
-    if let Some(delay_seconds) = retry_delay_seconds(state_guard.snapshot.retry_count) {
+    if let Some(base_delay) = retry_delay_seconds(state_guard.snapshot.retry_count) {
         if let Some(plan) = state_guard.reconnect_plan.clone() {
+            let delay_seconds = if plan.credentials.is_generated() {
+                retry_delay_for_fresh_otp(base_delay, state_guard.last_otp_step, Utc::now())
+            } else {
+                base_delay
+            };
             state_guard.snapshot.state = ConnectionState::Reconnecting;
             state_guard.snapshot.profile_id = Some(profile_id.clone());
             state_guard.snapshot.retry_count += 1;
@@ -308,6 +325,29 @@ pub async fn schedule_retry(
         plan.clone(),
         true,
     );
+}
+
+fn auth_failed_error(generated_password: bool) -> UserFacingError {
+    if generated_password {
+        UserFacingError {
+            code: "auth_failed".into(),
+            title: "Authentication failed".into(),
+            message: "The VPN server rejected the generated password.".into(),
+            suggested_fix: Some(
+                "Check the username, PIN and TOTP secret in this profile's generated-password settings, and that this computer's clock is correct."
+                    .into(),
+            ),
+            details_safe: None,
+        }
+    } else {
+        UserFacingError {
+            code: "auth_failed".into(),
+            title: "Authentication failed".into(),
+            message: "OpenVPN reported an authentication failure.".into(),
+            suggested_fix: Some("Re-enter your username and password.".into()),
+            details_safe: None,
+        }
+    }
 }
 
 fn format_dns_observation(obs: &crate::dns::DnsObservation) -> String {
