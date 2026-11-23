@@ -486,6 +486,21 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn refuses_to_launch_a_stored_profile_with_blocked_directives() {
+        let (manager, backend, profile_id, _, repository) =
+            build_manager(CredentialMode::None, None);
+        // profile.ovpn is a plain file; something could have changed it after
+        // the import accepted it.
+        let stored = &repository.detail.profile.managed_ovpn_path;
+        let mut content = fs::read_to_string(stored).unwrap();
+        content.push_str("plugin /tmp/evil.so\n");
+        fs::write(stored, content).unwrap();
+
+        assert!(manager.connect(profile_id.to_string()).await.is_err());
+        assert!(backend.last_request().is_none());
+    }
+
+    #[tokio::test]
     async fn packet_tunnel_uses_portable_assets_and_never_injects_dns_scripts() {
         let (manager, backend, profile_id, _, _) = build_manager(CredentialMode::None, None);
         backend.set_mode(crate::openvpn::VpnBackendMode::PacketTunnel);
@@ -649,6 +664,47 @@ mod tests {
             failed.last_error.as_ref().map(|error| error.code.as_str()),
             Some("openvpn_options_error")
         );
+    }
+
+    #[tokio::test]
+    async fn rejects_credentials_submitted_for_another_profile() {
+        let (manager, backend, profile_id, secrets, _) =
+            build_manager(CredentialMode::UserPass, None);
+        manager.connect(profile_id.to_string()).await.unwrap();
+
+        let other = ProfileId::new();
+        let result = manager
+            .submit_credentials(CredentialSubmission {
+                profile_id: other.clone(),
+                username: "mallory".into(),
+                password: "secret".into(),
+                remember_in_keychain: true,
+            })
+            .await;
+
+        assert!(result.is_err());
+        assert!(secrets.get_password(&other).unwrap().is_none());
+        assert!(backend.last_request().is_none());
+        // The real prompt is still pending.
+        assert_eq!(
+            manager.snapshot().state,
+            ConnectionState::AwaitingCredentials
+        );
+        let backend_session = backend.queue_session(Some(52));
+        manager
+            .submit_credentials(CredentialSubmission {
+                profile_id: profile_id.clone(),
+                username: "alice".into(),
+                password: "secret".into(),
+                remember_in_keychain: false,
+            })
+            .await
+            .unwrap();
+        assert!(backend.last_request().is_some());
+        backend_session
+            .tx
+            .send(BackendEvent::Exited(Some(0)))
+            .unwrap();
     }
 
     #[tokio::test]

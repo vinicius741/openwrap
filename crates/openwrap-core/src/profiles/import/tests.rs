@@ -329,3 +329,52 @@ static-key
     assert!(stored.contains("tls-auth assets/tls-auth.key"));
     assert!(stored.contains("auth-nocache"));
 }
+
+fn import_source(
+    source: &str,
+) -> Result<crate::profiles::ImportProfileResponse, crate::errors::AppError> {
+    let temp = TempDir::new().unwrap();
+    let source_dir = temp.path().join("source");
+    fs::create_dir_all(&source_dir).unwrap();
+    fs::write(source_dir.join("sample.ovpn"), source).unwrap();
+
+    let paths = AppPaths::new(temp.path().join("app"));
+    paths.ensure().unwrap();
+    let repository = Arc::new(SqliteRepository::new(&paths.database_path).unwrap());
+    let importer = ProfileImporter::new(paths, repository);
+    importer.import_profile(ImportProfileRequest {
+        source_path: source_dir.join("sample.ovpn"),
+        display_name: None,
+        allow_warnings: true,
+    })
+}
+
+/// OpenVPN reads a config line in 256-byte chunks and its length check stops
+/// at a NUL byte, so the text after byte 256 of this line would run as its own
+/// directive (here `plugin`) while OpenWrap saw one `remote` line.
+#[test]
+fn rejects_nul_byte_that_hides_a_directive_from_the_allow_list() {
+    let source = format!(
+        "remote x\0{} plugin /nonexistent/openwrap-probe.so\nclient\n",
+        "A".repeat(247)
+    );
+    assert!(import_source(&source).is_err());
+}
+
+#[test]
+fn rejects_control_characters_in_directives() {
+    assert!(import_source("client\nremote vpn.example.com\u{0b}1194\n").is_err());
+}
+
+#[test]
+fn rejects_lines_longer_than_openvpn_accepts() {
+    let source = format!("client\nremote {} 1194\n", "a".repeat(250));
+    assert!(import_source(&source).is_err());
+}
+
+#[test]
+fn ignores_control_characters_in_comments_and_crlf_line_endings() {
+    let response =
+        import_source("# note\u{0c}\r\nclient\r\nremote vpn.example.com 1194\r\n").unwrap();
+    assert!(response.profile.is_some());
+}

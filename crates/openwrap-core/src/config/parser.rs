@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::config::inline::{build_inline_asset, supported_inline_tag};
+use crate::config::limits::{control_char_error, find_control_char};
 use crate::errors::AppError;
 use crate::profiles::{AssetKind, AssetReference, ParsedDirective, ParsedProfile};
 
@@ -19,6 +20,13 @@ pub fn parse_profile(source: &str, _base_dir: &Path) -> Result<ParsedProfile, Ap
 
         if line.is_empty() || line.starts_with('#') || line.starts_with(';') {
             continue;
+        }
+
+        // Comments and inline block contents never reach OpenVPN's option
+        // parser (the launch config is regenerated from parsed directives),
+        // so only lines that become directives are checked.
+        if let Some(ch) = find_control_char(line) {
+            return Err(control_char_error(line_no, ch));
         }
 
         if let Some(tag) = line

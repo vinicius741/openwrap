@@ -260,6 +260,14 @@ impl ConnectionManager {
             let pending = state.pending_credentials.take().ok_or_else(|| {
                 crate::errors::AppError::ConnectionState("no pending credential prompt".into())
             })?;
+            // The submission names the profile whose saved username it
+            // changes; it must be the profile that asked for credentials.
+            if pending.profile.profile.id != submission.profile_id {
+                state.pending_credentials = Some(pending);
+                return Err(crate::errors::AppError::ConnectionState(
+                    "credentials were submitted for a different profile".into(),
+                ));
+            }
             pending.profile
         };
 
@@ -304,8 +312,15 @@ impl ConnectionManager {
     }
 
     pub async fn disconnect(&self) -> Result<ConnectionSnapshot, crate::errors::AppError> {
+        // Cancel any in-flight attempt in the same critical section that reads
+        // the session. Otherwise an attempt could be adopted after the read
+        // and `finish_disconnect` would forget its session without stopping
+        // OpenVPN. A cancelled attempt stops its own process (see connect.rs).
         let session = {
-            let state = self.state.lock();
+            let mut state = self.state.lock();
+            state.pending_credentials = None;
+            state.reconnect_plan = None;
+            state.pending_attempt = None;
             state.active_session.clone()
         };
 
@@ -314,7 +329,6 @@ impl ConnectionManager {
                 crate::connection::state_machine::ConnectionIntent::BeginDisconnect,
                 self.snapshot().profile_id.clone(),
             )?;
-            self.clear_pending_connect_state();
             crate::connection::manager::cleanup_auth_file(&session);
             self.backend.disconnect(session.session_id.clone())?;
             return Ok(self.snapshot());
@@ -431,13 +445,6 @@ impl ConnectionManager {
             .events
             .send(CoreEvent::StateChanged(state.snapshot.clone()));
         Ok(())
-    }
-
-    pub(super) fn clear_pending_connect_state(&self) {
-        let mut state = self.state.lock();
-        state.pending_credentials = None;
-        state.reconnect_plan = None;
-        state.pending_attempt = None;
     }
 
     pub(super) fn finish_disconnect(&self) {
