@@ -33,13 +33,21 @@ pub fn detect_openvpn_binaries(override_path: Option<PathBuf>) -> OpenVpnDetecti
     }
 }
 
+/// Where OpenWrap looks for OpenVPN on macOS (and Unix dev machines).
+///
+/// The setuid helper only launches OpenVPN from these paths, so this list is
+/// also its allow-list: Homebrew (Apple Silicon, Intel), MacPorts, and the
+/// usual Linux location for development.
+pub const UNIX_OPENVPN_LOCATIONS: [&str; 4] = [
+    "/opt/homebrew/sbin/openvpn",
+    "/usr/local/sbin/openvpn",
+    "/opt/local/sbin/openvpn",
+    "/usr/bin/openvpn",
+];
+
 #[cfg(not(windows))]
 fn platform_candidates() -> Vec<PathBuf> {
-    vec![
-        PathBuf::from("/opt/homebrew/sbin/openvpn"),
-        PathBuf::from("/usr/local/sbin/openvpn"),
-        PathBuf::from("/usr/bin/openvpn"),
-    ]
+    UNIX_OPENVPN_LOCATIONS.iter().map(PathBuf::from).collect()
 }
 
 #[cfg(windows)]

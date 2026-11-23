@@ -27,3 +27,6 @@ tempfile = "3.27"
 tokio.workspace = true
 uuid.workspace = true
 zeroize.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true

@@ -6,6 +6,10 @@ use openwrap_helper::reconcile::run_reconcile_dns;
 #[cfg(unix)]
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
+    if let Err(error) = openwrap_helper::request::ensure_authorized_user() {
+        eprintln!("{error}");
+        std::process::exit(77);
+    }
     let exit_code = match std::env::args().nth(1).as_deref() {
         Some("connect") => run_connect().await,
         Some("reconcile-dns") => run_reconcile_dns(),

@@ -79,7 +79,11 @@ pub async fn run_connect() -> i32 {
     let status = tokio::select! {
         status = child.wait() => status.ok(),
         _ = recv_signal(&mut sigterm, &mut sigint) => {
-            let _ = kill_process(openvpn_pid.map(|p| p as i32).unwrap_or(0));
+            // Never fall back to pid 0: kill(0, …) as root would signal the
+            // whole process group, including the OpenWrap app.
+            if let Some(pid) = openvpn_pid {
+                let _ = kill_process(pid as i32);
+            }
             child.wait().await.ok()
         }
     };

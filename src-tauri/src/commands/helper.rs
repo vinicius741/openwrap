@@ -85,7 +85,7 @@ fn install_bundled_helper(app: &AppHandle) -> Result<Option<AppInfo>, CommandErr
         return Ok(Some(info));
     }
 
-    let command = helper_install_command(&bundled)?;
+    let command = helper_install_command(&bundled, unsafe { libc::getuid() })?;
     let output = Command::new("/usr/bin/osascript")
         .arg("-e")
         .arg(AUTHORIZE_INSTALL)
@@ -126,9 +126,16 @@ fn install_bundled_helper(_app: &AppHandle) -> Result<Option<AppInfo>, CommandEr
     ))
 }
 
+/// Installs the bundled helper and binds it to `owner_uid` (the account
+/// running the app) by writing that uid to a root-owned owner file. The helper
+/// refuses every other non-root account.
 #[cfg(any(target_os = "macos", all(test, unix)))]
-fn helper_install_command(bundled: &std::path::Path) -> Result<String, CommandError> {
+fn helper_install_command(
+    bundled: &std::path::Path,
+    owner_uid: u32,
+) -> Result<String, CommandError> {
     use crate::app_state::backend_factory::INSTALLED_HELPER_PATH;
+    use openwrap_core::openvpn::helper_protocol::HELPER_OWNER_FILE;
 
     let source = bundled.to_str().ok_or_else(|| {
         install_error(
@@ -139,7 +146,7 @@ fn helper_install_command(bundled: &std::path::Path) -> Result<String, CommandEr
     // value. Quote paths for the shell independently of AppleScript syntax.
     let quoted_source = format!("'{}'", source.replace('\'', "'\\''"));
     Ok(format!(
-        "/usr/bin/install -d -o root -g wheel -m 755 /Library/PrivilegedHelperTools && /usr/bin/install -S -o root -g wheel -m 4755 {quoted_source} '{INSTALLED_HELPER_PATH}'"
+        "/usr/bin/install -d -o root -g wheel -m 755 /Library/PrivilegedHelperTools && umask 022 && /bin/rm -f '{HELPER_OWNER_FILE}' && /usr/bin/printf '%s\\n' {owner_uid} > '{HELPER_OWNER_FILE}' && /usr/sbin/chown root:wheel '{HELPER_OWNER_FILE}' && /bin/chmod 644 '{HELPER_OWNER_FILE}' && /usr/bin/install -S -o root -g wheel -m 4755 {quoted_source} '{INSTALLED_HELPER_PATH}'"
     ))
 }
 
@@ -155,8 +162,15 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let marker = dir.path().join("injected");
         let source = format!("/Applications/My 'App' \" $(touch {}) `false` \\\n.app/Contents/Resources/openwrap-helper-bundled", marker.display());
-        let command = helper_install_command(std::path::Path::new(&source)).unwrap();
-        let command = command.replace("/usr/bin/install", "capture_install");
+        let owner_file = dir.path().join("helper.owner");
+        let command = helper_install_command(std::path::Path::new(&source), 501).unwrap();
+        let command = command
+            .replace("/usr/bin/install", "capture_install")
+            .replace("/usr/sbin/chown", "capture_install")
+            .replace(
+                openwrap_core::openvpn::helper_protocol::HELPER_OWNER_FILE,
+                owner_file.to_str().unwrap(),
+            );
         let output = std::process::Command::new("/bin/sh")
             .arg("-c")
             .arg(format!(
@@ -170,5 +184,8 @@ mod tests {
         assert!(args.contains(&source.as_bytes()));
         assert!(args.contains(&b"4755".as_slice()));
         assert!(args.contains(&crate::app_state::backend_factory::INSTALLED_HELPER_PATH.as_bytes()));
+        // The helper is bound to the installing account.
+        assert_eq!(std::fs::read_to_string(&owner_file).unwrap(), "501\n");
+        assert!(args.contains(&b"root:wheel".as_slice()));
     }
 }

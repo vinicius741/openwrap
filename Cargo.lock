@@ -2360,6 +2360,7 @@ dependencies = [
  "cc",
  "chrono",
  "dirs",
+ "libc",
  "openwrap-core",
  "serde",
  "serde_json",

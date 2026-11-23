@@ -34,8 +34,16 @@ pub fn reconcile_dns_state(runtime_root: &Path) -> Result<(), String> {
     reconcile_runtime_processes(runtime_root)?;
 
     let state_root = runtime_root.join("dns-state");
-    if !state_root.exists() {
-        return Ok(());
+    match fs::symlink_metadata(&state_root) {
+        Err(_) => return Ok(()),
+        // A symlink here could point the root helper at any directory.
+        Ok(metadata) if !metadata.is_dir() => {
+            return Err(format!(
+                "DNS state root {} is not a directory",
+                state_root.display()
+            ))
+        }
+        Ok(_) => {}
     }
 
     let entries = fs::read_dir(&state_root)
@@ -44,7 +52,8 @@ pub fn reconcile_dns_state(runtime_root: &Path) -> Result<(), String> {
     for entry in entries {
         let entry = entry.map_err(|error| format!("failed to inspect DNS state entry: {error}"))?;
         let profile_dir = entry.path();
-        if !profile_dir.is_dir() {
+        // file_type() does not follow symlinks: skip linked "profile" dirs.
+        if !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
             continue;
         }
 
