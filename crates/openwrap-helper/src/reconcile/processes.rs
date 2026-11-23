@@ -30,6 +30,11 @@ pub fn reconcile_runtime_processes(runtime_root: &Path) -> Result<(), String> {
 
     let mut errors = Vec::new();
     for pid in orphan_openvpn {
+        // As root, kill(0) signals our process group and kill(-1) every
+        // process; a forged `ps` row must not reach either.
+        if pid <= 1 {
+            continue;
+        }
         if let Err(error) = kill_process(pid) {
             if error.raw_os_error() != Some(libc::ESRCH) {
                 errors.push(format!(

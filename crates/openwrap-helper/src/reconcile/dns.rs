@@ -13,11 +13,13 @@ const RESOLVER_DIR: &str = "/etc/resolver";
 ///
 /// The helper runs as root, so it refuses to follow a symlink there:
 /// otherwise a link to a root-only file would be read (and echoed back in
-/// error messages) or overwritten.
+/// error messages) or overwritten. It also refuses hard links (see
+/// [`ensure_single_link_file`]), and opens with `O_NONBLOCK` so a FIFO
+/// planted at the path cannot block the helper.
 pub fn read_state_file(path: &Path) -> Result<Option<String>, String> {
     let mut file = match fs::OpenOptions::new()
         .read(true)
-        .custom_flags(libc::O_NOFOLLOW)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
         .open(path)
     {
         Ok(file) => file,
@@ -29,30 +31,49 @@ pub fn read_state_file(path: &Path) -> Result<Option<String>, String> {
             ))
         }
     };
-    if !file
-        .metadata()
-        .map_err(|error| format!("failed to inspect {}: {error}", path.display()))?
-        .is_file()
-    {
-        return Err(format!(
-            "DNS state {} is not a regular file",
-            path.display()
-        ));
-    }
+    ensure_single_link_file(&file, path)?;
     let mut contents = String::new();
     file.read_to_string(&mut contents)
         .map_err(|error| format!("failed to read DNS state {}: {error}", path.display()))?;
     Ok(Some(contents))
 }
 
+/// The state file must be a regular file with a single link. A hard link
+/// from the runtime directory to another file (for example a root-owned
+/// system file) would otherwise make root read it and then truncate and
+/// rewrite it.
+fn ensure_single_link_file(file: &fs::File, path: &Path) -> Result<(), String> {
+    use std::os::unix::fs::MetadataExt;
+
+    let metadata = file
+        .metadata()
+        .map_err(|error| format!("failed to inspect {}: {error}", path.display()))?;
+    if !metadata.is_file() {
+        return Err(format!(
+            "DNS state {} is not a regular file",
+            path.display()
+        ));
+    }
+    if metadata.nlink() != 1 {
+        return Err(format!(
+            "refusing DNS state {}: it has {} hard links",
+            path.display(),
+            metadata.nlink()
+        ));
+    }
+    Ok(())
+}
+
 fn write_state_file(path: &Path, contents: &str) -> Result<(), String> {
+    // Open without O_TRUNC and check the file before changing it.
     let mut file = fs::OpenOptions::new()
         .write(true)
-        .truncate(true)
-        .custom_flags(libc::O_NOFOLLOW)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
         .open(path)
         .map_err(|error| format!("failed to update DNS restore state: {error}"))?;
-    file.write_all(contents.as_bytes())
+    ensure_single_link_file(&file, path)?;
+    file.set_len(0)
+        .and_then(|()| file.write_all(contents.as_bytes()))
         .map_err(|error| format!("failed to update DNS restore state: {error}"))
 }
 

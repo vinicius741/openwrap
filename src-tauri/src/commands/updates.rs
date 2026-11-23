@@ -165,7 +165,24 @@ pub fn get_app_info(app: AppHandle) -> AppInfo {
     let helper_status = if custom_helper {
         HelperStatus::Unknown
     } else {
-        helper_status(bundled_helper.as_deref(), &installed_helper_path())
+        let status = helper_status(bundled_helper.as_deref(), &installed_helper_path());
+        // A helper installed for another account (or by an older OpenWrap,
+        // before the owner file existed) is offered for reinstall, which
+        // binds it to this account.
+        #[cfg(target_os = "macos")]
+        let status = match status {
+            HelperStatus::Current
+                if !helper_bound_to(
+                    Path::new(openwrap_core::openvpn::helper_protocol::HELPER_OWNER_FILE),
+                    unsafe { libc::getuid() },
+                    0,
+                ) =>
+            {
+                HelperStatus::Outdated
+            }
+            status => status,
+        };
+        status
     };
 
     AppInfo {
@@ -217,6 +234,24 @@ fn valid_helper_metadata(uid: u32, gid: u32, mode: u32) -> bool {
     uid == 0 && gid == 0 && mode & 0o7777 == 0o4755
 }
 
+/// True when the helper owner file is a root-owned (`file_owner`), not
+/// group/world-writable regular file naming `uid`.
+#[cfg(unix)]
+fn helper_bound_to(owner_file: &Path, uid: u32, file_owner: u32) -> bool {
+    use std::os::unix::fs::MetadataExt;
+
+    let Ok(metadata) = std::fs::symlink_metadata(owner_file) else {
+        return false;
+    };
+    metadata.is_file()
+        && metadata.uid() == file_owner
+        && metadata.mode() & 0o022 == 0
+        && std::fs::read_to_string(owner_file)
+            .ok()
+            .and_then(|text| text.trim().parse::<u32>().ok())
+            == Some(uid)
+}
+
 #[cfg(not(unix))]
 fn helper_permissions_valid(_installed: &Path) -> bool {
     false
@@ -255,6 +290,26 @@ mod tests {
             helper_status(Some(&bundled), &installed),
             HelperStatus::Outdated
         ));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn helper_binding_must_name_this_account_in_a_safe_file() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let me = unsafe { libc::getuid() };
+        let dir = tempfile::tempdir().unwrap();
+        let owner = dir.path().join("helper.owner");
+        assert!(!helper_bound_to(&owner, 501, me));
+
+        std::fs::write(&owner, "501\n").unwrap();
+        std::fs::set_permissions(&owner, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(helper_bound_to(&owner, 501, me));
+        assert!(!helper_bound_to(&owner, 502, me));
+        assert!(!helper_bound_to(&owner, 501, me.wrapping_add(1)));
+
+        std::fs::set_permissions(&owner, std::fs::Permissions::from_mode(0o664)).unwrap();
+        assert!(!helper_bound_to(&owner, 501, me));
     }
 
     #[test]

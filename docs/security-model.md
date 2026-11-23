@@ -29,25 +29,43 @@ OpenVPN and restores DNS. This is the free path; see `AGENTS.md`
 
 What the helper enforces:
 
-- It only runs for the user logged in at the Mac's screen (owner of
-  `/dev/console`). Other local accounts, SSH sessions and background accounts
-  cannot use it.
+- It only serves the account that installed it. Installing the helper from
+  OpenWrap writes that account's uid to a root-owned file next to it
+  (`app.openwrap.desktop.openwrap-helper.owner`); every other non-root
+  account is refused (exit status 77). Another account on the same Mac that
+  wants to use OpenWrap must install the helper again, with an administrator
+  password, which moves it to that account.
+- A helper installed by an older OpenWrap (no owner file) instead serves
+  whoever is logged in at the Mac's screen (owner of `/dev/console`), which
+  includes any other account that logs in there. OpenWrap offers to reinstall
+  such a helper.
 - It only launches OpenVPN from known install locations (Homebrew, MacPorts).
 - Config, auth and runtime paths must be under the calling user's
   `~/Library/Application Support/OpenWrap`.
 - OpenVPN gets structured argv and a cleared environment, never a shell.
-- DNS reconciliation refuses symlinked state files, only deletes OpenWrap
-  resolver files under `/etc/resolver/`, and only removes host routes to IP
-  addresses.
+- DNS reconciliation refuses symlinked or hard-linked state files, only
+  deletes OpenWrap resolver files under `/etc/resolver/`, and only removes
+  host routes to IP addresses.
 
-What it does **not** protect against: **the logged-in user's own programs can
-get root without a password.** The config file and the DNS scripts OpenVPN
-runs live in directories that user can write, and Homebrew's OpenVPN (and the
-libraries it loads) are owned by that user on Apple Silicon. Any process
-running as you could change them and then ask the helper to start OpenVPN.
-Closing that would mean shipping and maintaining a root-owned OpenVPN build,
-which this hobby project deliberately does not do. Treat installing the
-helper like giving your account passwordless `sudo` for OpenVPN.
+What it does **not** protect against: **any program running as the account
+the helper serves can get unrestricted root without a password.** That is
+more than "passwordless `sudo` for OpenVPN": OpenVPN runs as root with a
+config the account controls, and OpenVPN config can load plugins and run
+scripts. Concretely:
+
+- The launch config and `auth.txt` live in a directory that account can
+  write, and root OpenVPN reads them without the helper checking their
+  content.
+- The DNS up/down scripts are written to that account's temporary directory
+  and run as root.
+- Homebrew's OpenVPN (and the libraries it loads) are owned by that account
+  on Apple Silicon.
+
+The first two do not depend on who owns the OpenVPN binary, so a root-owned
+OpenVPN (for example from MacPorts) alone does not close this. Closing it
+would need the helper to generate or fully validate the config and scripts
+itself and to run only a root-owned OpenVPN, which this hobby project does not
+do. Treat installing the helper like giving that account passwordless `sudo`.
 
 - Helper-path DNS changes have persisted restore state and are reconciled
   after interrupted sessions and at the next launch.
@@ -55,7 +73,21 @@ helper like giving your account passwordless `sudo` for OpenVPN.
 ## Windows (experimental)
 
 The app runs elevated (`requireAdministrator`) and starts `openvpn.exe`
-directly. There is no separate privilege boundary inside the app.
+directly. There is no separate privilege boundary inside the app, and
+**any program running as the same Windows user can get administrator rights
+through OpenWrap** without a UAC prompt:
+
+- Profiles, launch configs and settings live under `%LOCALAPPDATA%\OpenWrap`,
+  which that user can write. The elevated `openvpn.exe` runs whatever the
+  launch config says, and the OpenVPN path override in the settings database
+  is run elevated. OpenWrap re-checks the stored profile at connect, but the
+  same user can change the files between that check and OpenVPN reading them.
+- In-app updates: the updater verifies the installer's signature in memory,
+  then writes it to the user's `%TEMP%` and runs it elevated. A program
+  running as that user could replace the file in between.
+
+Closing this needs OpenVPN's interactive service (non-admin) route, which is
+not implemented (see `docs/windows-setup.md`).
 
 ## Optional Packet Tunnel (paid Apple Network Extension signing)
 

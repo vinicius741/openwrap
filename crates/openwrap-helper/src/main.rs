@@ -6,7 +6,7 @@ use openwrap_helper::reconcile::run_reconcile_dns;
 #[cfg(unix)]
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
-    if let Err(error) = openwrap_helper::request::ensure_console_user() {
+    if let Err(error) = openwrap_helper::request::ensure_authorized_user() {
         eprintln!("{error}");
         std::process::exit(77);
     }

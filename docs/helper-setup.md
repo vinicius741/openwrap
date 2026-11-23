@@ -88,9 +88,14 @@ Notes:
 
 - The helper only accepts app-managed config/auth/runtime paths under `~/Library/Application Support/OpenWrap`.
 - The helper launches OpenVPN with structured argv and a cleared environment.
-- The helper only runs for the user logged in at the Mac's screen (the owner of
-  `/dev/console`). It refuses other local accounts, SSH sessions and
-  background accounts (exit status 77).
+- The helper only serves the account that installed it from OpenWrap: the
+  install writes that account's uid to the root-owned
+  `/Library/PrivilegedHelperTools/app.openwrap.desktop.openwrap-helper.owner`.
+  Other non-root accounts are refused (exit status 77). Without that file (an
+  older install, or the manual setup below) it serves whoever is logged in at
+  the Mac's screen (the owner of `/dev/console`). To bind a manually installed
+  development helper to your account:
+  `echo "$(id -u)" | sudo tee /Library/PrivilegedHelperTools/app.openwrap.desktop.openwrap-helper.owner >/dev/null && sudo chmod 644 /Library/PrivilegedHelperTools/app.openwrap.desktop.openwrap-helper.owner`
 - The helper only launches OpenVPN from a known install location:
   `/opt/homebrew/sbin/openvpn`, `/usr/local/sbin/openvpn` (Homebrew) or
   `/opt/local/sbin/openvpn` (MacPorts). A custom OpenVPN path elsewhere is

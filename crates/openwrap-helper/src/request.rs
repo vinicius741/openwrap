@@ -4,6 +4,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
+pub use openwrap_core::openvpn::helper_protocol::HELPER_OWNER_FILE;
 pub use openwrap_core::openvpn::runtime::UNIX_OPENVPN_LOCATIONS;
 pub use openwrap_core::openvpn::ConnectRequest;
 pub use openwrap_core::openvpn::ReconcileDnsRequest;
@@ -101,30 +102,95 @@ pub fn is_allowed_openvpn_location(path: &Path) -> bool {
         .any(|allowed| path == Path::new(allowed))
 }
 
-/// The helper only serves the user logged in at the Mac's screen (the owner
-/// of `/dev/console`). Other local accounts, SSH sessions and background
-/// accounts cannot use it to run OpenVPN or change DNS as root.
+/// Who may use the helper.
+///
+/// The helper serves the account that installed it: the app's privileged
+/// install writes that account's uid to [`HELPER_OWNER_FILE`]. Without that
+/// file (a helper installed by an older OpenWrap, or a development setup) it
+/// falls back to the user logged in at the Mac's screen (the owner of
+/// `/dev/console`).
 #[cfg(target_os = "macos")]
-pub fn ensure_console_user() -> Result<(), String> {
+pub fn ensure_authorized_user() -> Result<(), String> {
     use std::os::unix::fs::MetadataExt;
 
     let uid = unsafe { libc::getuid() };
     if uid == 0 {
         return Ok(());
     }
-    let console_owner = fs::metadata("/dev/console")
-        .map_err(|error| format!("failed to identify the console user: {error}"))?
-        .uid();
-    if console_owner == uid {
-        Ok(())
-    } else {
-        Err("openwrap-helper only runs for the user logged in at this Mac's screen".into())
-    }
+    let binding = read_owner_binding(Path::new(HELPER_OWNER_FILE), 0)?;
+    authorize_caller(uid, binding, || {
+        fs::metadata("/dev/console")
+            .map(|metadata| metadata.uid())
+            .map_err(|error| format!("failed to identify the console user: {error}"))
+    })
 }
 
 #[cfg(not(target_os = "macos"))]
-pub fn ensure_console_user() -> Result<(), String> {
+pub fn ensure_authorized_user() -> Result<(), String> {
     Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OwnerBinding {
+    /// The helper serves only this uid.
+    Bound(u32),
+    /// No owner file: serve the console user.
+    Unbound,
+}
+
+/// Reads the owner file. It must be a regular file (not a symlink) owned by
+/// `required_owner` (root in production) and not writable by group or others.
+pub fn read_owner_binding(path: &Path, required_owner: u32) -> Result<OwnerBinding, String> {
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+
+    let file = match fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+    {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(OwnerBinding::Unbound),
+        Err(error) => return Err(format!("failed to read the helper owner file: {error}")),
+    };
+    let metadata = file
+        .metadata()
+        .map_err(|error| format!("failed to inspect the helper owner file: {error}"))?;
+    if !metadata.is_file() || metadata.uid() != required_owner || metadata.mode() & 0o022 != 0 {
+        return Err(format!(
+            "{} must be a regular file owned by root and writable only by root",
+            path.display()
+        ));
+    }
+    let mut contents = String::new();
+    file.take(64)
+        .read_to_string(&mut contents)
+        .map_err(|error| format!("failed to read the helper owner file: {error}"))?;
+    contents
+        .trim()
+        .parse::<u32>()
+        .map(OwnerBinding::Bound)
+        .map_err(|_| format!("{} does not contain a user id", path.display()))
+}
+
+pub fn authorize_caller(
+    uid: u32,
+    binding: OwnerBinding,
+    console_owner: impl FnOnce() -> Result<u32, String>,
+) -> Result<(), String> {
+    if uid == 0 {
+        return Ok(());
+    }
+    match binding {
+        OwnerBinding::Bound(owner) if owner == uid => Ok(()),
+        OwnerBinding::Bound(_) => Err(
+            "openwrap-helper is installed for another account on this Mac; install it again from OpenWrap to use it with this account"
+                .into(),
+        ),
+        OwnerBinding::Unbound if console_owner()? == uid => Ok(()),
+        OwnerBinding::Unbound => {
+            Err("openwrap-helper only runs for the user logged in at this Mac's screen".into())
+        }
+    }
 }
 
 pub fn real_user_home_dir() -> Result<PathBuf, String> {
