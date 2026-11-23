@@ -23,6 +23,11 @@ export const WHATS_NEW: WhatsNewNotes = {
         'Each release now has OpenWrap-Windows-Setup.exe. Running it also offers to install OpenVPN, so there is nothing else to download. It is still experimental.',
     },
     {
+      title: 'Windows now updates itself',
+      detail:
+        'Like the Mac app, OpenWrap for Windows checks for new versions when it starts and installs them with one click. Profiles and settings are kept.',
+    },
+    {
       title: 'OpenVPN missing? One click',
       detail:
         'If OpenVPN is not installed, OpenWrap now says so when it starts and offers Install OpenVPN, instead of waiting for a connection to fail.',

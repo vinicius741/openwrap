@@ -1,6 +1,11 @@
 # Builds and publishes an OpenWrap release when a v* tag is pushed
 # (scripts/release.sh does the bump + tag + push).
 #
+# The macOS job creates the release as a draft, the Windows job attaches the
+# signed installer, and the publish job adds Windows to latest.json and makes
+# the release public. Installed apps (both platforms) only see the release
+# once every update file is in place.
+#
 # Free: the repository is public, so GitHub-hosted macOS runners cost nothing.
 # No Apple Developer account: the app is ad-hoc signed; updates are verified
 # with the minisign key whose private half lives in the
@@ -64,14 +69,16 @@ jobs:
           cargo build -p openwrap-helper --release
           cargo test -p openwrap-core -p openwrap-app
 
+      # The Tauri CLI is pinned to an exact version in this workflow: these
+      # jobs build the release and hold the updater signing key.
       - name: Build OpenWrap.app
-        run: npx --yes @tauri-apps/cli@2 build --bundles app
+        run: npx --yes @tauri-apps/cli@2.12.4 build --bundles app
 
       - name: Package release
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          TAURI_CLI: npx --yes @tauri-apps/cli@2
+          TAURI_CLI: npx --yes @tauri-apps/cli@2.12.4
         run: |
           if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
             echo "::error::Repository secret TAURI_SIGNING_PRIVATE_KEY is not set"
@@ -79,26 +86,36 @@ jobs:
           fi
           scripts/package-release.sh target/release/bundle/macos/OpenWrap.app dist-release
 
-      - name: Publish GitHub Release
+      - name: Create draft GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          ASSETS=(
+            dist-release/OpenWrap-Share.zip
+            dist-release/OpenWrap.app.tar.gz
+            dist-release/OpenWrap.app.tar.gz.sig
+            dist-release/latest.json
+          )
+          # A re-run of this job finds the draft it created last time.
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" --clobber "${ASSETS[@]}"
+            exit 0
+          fi
           gh release create "${GITHUB_REF_NAME}" \
+            --draft \
             --title "OpenWrap ${VERSION}" \
             --notes "${RELEASE_NOTES}
 
           **First install (Mac):** download \`OpenWrap-Share.zip\`, unzip it and double-click \`Setup.command\` (see README-FIRST.txt).
           **First install (Windows, experimental):** download \`OpenWrap-Windows-Setup.exe\` and run it. It also offers to install OpenVPN.
-          **Already installed:** on Mac, OpenWrap offers this update automatically when it starts. On Windows, run the new \`OpenWrap-Windows-Setup.exe\` over the old install." \
-            dist-release/OpenWrap-Share.zip \
-            dist-release/OpenWrap.app.tar.gz \
-            dist-release/OpenWrap.app.tar.gz.sig \
-            dist-release/latest.json
+          **Already installed:** OpenWrap offers this update automatically when it starts. Windows copies at version 0.3.2 or earlier cannot update themselves: run the new \`OpenWrap-Windows-Setup.exe\` once over the old install: profiles, settings and saved usernames are kept, and later updates are automatic." \
+            "${ASSETS[@]}"
 
-  # Windows installer, attached to the release created above under a fixed
-  # name so https://github.com/<repo>/releases/latest/download/OpenWrap-Windows-Setup.exe
-  # always points at the newest one. Unsigned (no paid code signing), and not
-  # wired into the updater yet: Windows users rerun the installer to update.
+  # Windows installer, attached to the draft release under a fixed name so
+  # https://github.com/<repo>/releases/latest/download/OpenWrap-Windows-Setup.exe
+  # always points at the newest one. Not code signed (no paid certificate); the
+  # publish job signs it with the free minisign updater key so installed copies
+  # can update themselves.
   windows-installer:
     needs: release
     runs-on: windows-latest
@@ -117,8 +134,8 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
-      - name: Build OpenWrap installer (unsigned)
-        run: npx --yes @tauri-apps/cli@2 build --bundles nsis
+      - name: Build OpenWrap installer
+        run: npx --yes @tauri-apps/cli@2.12.4 build --bundles nsis
 
       - name: Attach installer to the release
         shell: pwsh
@@ -129,3 +146,44 @@ jobs:
           if (-not $installer) { throw "NSIS installer not found" }
           Copy-Item $installer.FullName OpenWrap-Windows-Setup.exe
           gh release upload "$env:GITHUB_REF_NAME" OpenWrap-Windows-Setup.exe --clobber
+          if ($LASTEXITCODE -ne 0) { throw "gh release upload failed (exit $LASTEXITCODE)" }
+
+  # Signs the Windows installer with the updater key, adds it to latest.json
+  # and publishes the draft. Signing runs here rather than on the Windows runner
+  # because the key has an empty password, and Windows cannot hold an empty
+  # TAURI_SIGNING_PRIVATE_KEY_PASSWORD (the CLI would then prompt for one).
+  # If a build job fails the release stays a draft; re-run the failed job.
+  publish:
+    needs: [release, windows-installer]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Sign Windows installer, add it to latest.json and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "::error::Repository secret TAURI_SIGNING_PRIVATE_KEY is not set"
+            exit 1
+          fi
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p dist-publish
+          gh release download "${GITHUB_REF_NAME}" --dir dist-publish \
+            --pattern latest.json --pattern OpenWrap-Windows-Setup.exe
+          npx --yes @tauri-apps/cli@2.12.4 signer sign --app-version "$VERSION" \
+            dist-publish/OpenWrap-Windows-Setup.exe
+          test -s dist-publish/OpenWrap-Windows-Setup.exe.sig
+          node scripts/add-windows-update.mjs dist-publish/latest.json \
+            dist-publish/OpenWrap-Windows-Setup.exe.sig \
+            "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/OpenWrap-Windows-Setup.exe"
+          gh release upload "${GITHUB_REF_NAME}" --clobber \
+            dist-publish/OpenWrap-Windows-Setup.exe.sig dist-publish/latest.json
+          gh release edit "${GITHUB_REF_NAME}" --draft=false --latest

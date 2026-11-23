@@ -16,10 +16,23 @@
 ; it with the bundled install-openvpn.ps1 (pinned, checksum-verified MSI) so a
 ; new user has nothing else to download. Skipped when OpenVPN is already
 ; installed, and in silent installs (/S), where the MessageBox answers No.
+;
+; In-app updates (/UPDATE, started by tauri-plugin-updater from the elevated
+; app) skip the OpenVPN prompt (the app has its own banner) and relaunch
+; OpenWrap here. The template's .onInstSuccess relaunch (/R) uses
+; nsis_tauri_utils::RunAsUser, which fails with error 740 for the
+; requireAdministrator binary, so the app never passes /R (see
+; src-tauri/src/commands/updates.rs). The installer is elevated, so ExecShell
+; starts OpenWrap elevated without a second UAC prompt.
 !macro NSIS_HOOK_POSTINSTALL
   Push $R7
   Push $R8
   Push $R9
+  StrCmp $UpdateMode 1 0 openwrap_not_update
+  DetailPrint "Restarting OpenWrap..."
+  ExecShell "" "$INSTDIR\${MAINBINARYNAME}.exe"
+  Goto openwrap_openvpn_done
+  openwrap_not_update:
   StrCpy $R8 "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe"
   StrCpy $R9 "$INSTDIR\install-openvpn.ps1"
   IfFileExists "$R9" 0 openwrap_openvpn_done
